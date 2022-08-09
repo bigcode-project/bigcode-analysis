@@ -14,7 +14,7 @@ The filtering of these datasets based on the number of configuration and test fi
 
 Near deduplication removes 27% of the files and 47% of the python-all-license dataset in volume. The near deduplicated version is available [here](https://huggingface.co/datasets/BigCode/github-python-any-license-near-dedup). 
 
-Near deduplication removes 36% of the files and 58% of the dataset in volume of the python-all-license dataset in volume. The near deduplicated version is available [here](https://huggingface.co/datasets/BigCode/github-python-safe-licenses-near-dedup). 
+Near deduplication removes 36% of the files and 58% of the dataset in volume of the python-all-license dataset in volume. The near deduplicated version is available [here](https://huggingface.co/datasets/BigCode/github-python-safe-licenses-near-dedup). Below are the statistics of the data removed by each filtering.
 
 |dataset | size of duplicates | number of duplicate files |size filtered files (*)|
 |-------|--------|---------|---------|
