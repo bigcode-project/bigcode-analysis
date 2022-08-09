@@ -18,8 +18,8 @@ Near deduplication removes 36% of the files and 58% of the dataset in volume of 
 
 |dataset | size of duplicates | number of duplicate files |size filtered files (*)|
 |-------|--------|---------|---------|
-|safe licenses dataset| 103GB (**58%**)| 8.4M (**36%**)| 39GB (**22%**)|
-|all licenses dataset |109GB (47%)| 11.6M (27%)| 46GB (20%)|
+|safe licenses (179GB, 23M files)| 103GB (**58%**)| 8.4M (**36%**)| 39GB (**22%**)|
+|all licenses (234GB, 42M files)|109GB (47%)| 11.6M (27%)| 46GB (20%)|
 
 (*) config/test/uncommon
 
