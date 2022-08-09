@@ -12,4 +12,20 @@ The filtering of these datasets based on the number of configuration and test fi
 
 * Near deduplication:
 
-Near deduplication removes 27% of the files and 47% of the python-all-license dataset in volume. The near deduplicated version is available [here](https://huggingface.co/datasets/BigCode/github-python-any-license-near-dedup). (Near deduplication of python-safe-license is  ongoing).
+Near deduplication removes 27% of the files and 47% of the python-all-license dataset in volume. The near deduplicated version is available [here](https://huggingface.co/datasets/BigCode/github-python-any-license-near-dedup). 
+
+Near deduplication removes 36% of the files and 58% of the dataset in volume of the python-all-license dataset in volume. The near deduplicated version is available [here](https://huggingface.co/datasets/BigCode/github-python-any-license-near-dedup). 
+
+|dataset | size of duplicates | number of duplicate files |size filtered files (*)|
+|-------|--------|---------|---------|
+|safe licenses dataset| 103GB (**58%**)| 8.4M (**36%**)| 39GB (**22%**)|
+|all licenses dataset |109GB (47%)| 11.6M (27%)| 46GB (20%)|
+
+(*) config/test/uncommon
+
+File size distribution of random 10k subsets (before and after filtering):
+
+<img width="493" alt="image" src="https://user-images.githubusercontent.com/44069155/183675926-13bf6f5b-b9c7-4def-91fb-4fb46ee1d505.png">
+
+<img width="493" alt="image" src="https://user-images.githubusercontent.com/44069155/183676271-962dff8b-4759-4950-b8cb-f07d2364ebde.png">
+
