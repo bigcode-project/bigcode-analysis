@@ -8,3 +8,5 @@ This repository is for the analysis done in BigCode Project. You can find analys
   * percentage of configuration/test and uncommon files 
   * file size distribution
   * loss analysis
+
+* **Multi query attention experiments**, for details refer [here](/multi_query_experiments/README.md)
