@@ -5,7 +5,7 @@
     - `MultiQuery1` uses the same hidden states order as in HF and one explicit `reshape`. It is the fastest and  is currently ported to HF transformers.
 - `profile_attention_types.py` contains code to run timing experiments. Results are in `profile_attention_types.json`.
 - `profile_attention_types_visualise.ipynb` contains graphs.
-- There is uncertainity in if profiler shows accurate times. Cpu times, through, decrease slightly in proportion, but still remain significant event for bigger tensors. Around 33% for sequence length of ~2K. However, `MultiQuery1` is fastest and is ported to HF tranformers.
+- There is uncertainty about the accuracy times of the profiler. Cpu times, through, decrease slightly in proportion, but still remain significant event for bigger tensors. Around 33% for sequence length of ~2K. However, `MultiQuery1` is the fastest and is ported to HF transformers.
 
 # Profiling of multi head vs multi query attention in HF transformers
 - Implementaion code is [here](`https://github.com/bigcode-project/transformers/tree/multi_query`)
