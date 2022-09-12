@@ -1,6 +1,6 @@
 # Profiling of multi head vs multi query attention separatelly
 - `attention_types_imp.py` contains simplistic implementations of different attention layers without normalization, masks and softmax, just matrix multiplications and rearranging of tensors:
-    - `MultiHead` is a multi head variant closelly following implementaion in Hugging Face.
+    - `MultiHead` is a multi head variant closely following the implementaion in Hugging Face.
     - `MultiQuery` is a multi query variant with dimesion order of hidden states as in Megatron ML `[sl, bs]`. the reoedering of the tesors avoid explicit copies here, however, `bmm` subsequently makes internal copies and  speed suffers. TODO: try with separate tenosrs for `q`, `k` and `v`.
     - `MultiQuery1` uses the same hidden states order as in HF and one explicit `reshape`. Is the fastes and  is currently ported to HF transformers.
 - `profile_attention_types.py` contains code to run timing experiments. Results are in `profile_attention_types.json`.
