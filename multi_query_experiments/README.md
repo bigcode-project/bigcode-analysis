@@ -13,7 +13,7 @@
 - There are 2 implementations variants of multi query attention controlled by `attention_type` parameter:
     - `AttentionType.MULTI_QUERY` with minimal changes to the code.
     - `AttentionType.MULTI_QUERY_1` with some reordering of dimensions from explorations with @harm-devries and bmm instead of matmul similarly as in `MultiQuery1`.
-- `AttentionType.MULTI_QUERY_1` is the fastes, with aroun 24% speedup:
+- `AttentionType.MULTI_QUERY_1` is the fastest, with around 24% speedup:
 ```
 -------------------- attention_type == AttentionType.MULTI_QUERY---------------------
 {'get_test_batch': 5.9604644775390625e-05, 'generate_text_batch': 18.453815460205078, 'input_batch_size': 8, 'input_batch_length': 16, 'max_gen_length': 1024, 'num_beams': 1, 'do_sample': False, 'pad_token_id': 50256, 'dtype': torch.int64, 'device': device(type='cuda'), 'cuda_device_name': 'Tesla V100-PCIE-16GB-LS'}
