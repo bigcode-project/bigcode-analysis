@@ -10,7 +10,7 @@ Whichever way you choose to contribute, please be mindful to respect our
 
 ## You can contribute in so many ways!
 
-There are 4 ways you can contribute to transformers:
+There are 4 ways you can contribute to this repository:
 * Fixing outstanding issues with the existing code;
 * Implementing new models;
 * Contributing to the examples or to the documentation;
@@ -53,7 +53,7 @@ Did not find it? :( So we can act quickly on it, please follow these steps:
 A world-class feature request addresses the following points:
 
 1. Motivation first:
-  * Is it related to a problem/frustration with the library? If so, please explain
+  * Is it related to a problem/frustration with the current features? If so, please explain
     why. Providing a code snippet that demonstrates the problem is best.
   * Is it related to something you would need for a project? We'd love to hear
     about it!
@@ -78,7 +78,7 @@ BigCode. `git` is not the easiest tool to use but it has the greatest
 manual. Type `git --help` in a shell and enjoy. If you prefer books, [Pro
 Git](https://git-scm.com/book/en/v2) is a very good reference.
 
-Follow these steps to start contributing ([supported Python versions](https://github.com/huggingface/transformers/blob/main/setup.py#L426)):
+Follow these steps to start contributing :
 
 1. Fork the repository by
    clicking on the 'Fork' button on the repository's page. This creates a copy of the code
