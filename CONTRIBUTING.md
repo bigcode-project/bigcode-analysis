@@ -6,7 +6,7 @@ others, reaching out and improving the documentations are immensely valuable to
 the community.
 
 Whichever way you choose to contribute, please be mindful to respect our
-[code of conduct](ADD LINK).
+[code of conduct](https://bigcode-project.org/docs/about/code_of_conduct/).
 
 ## You can contribute in so many ways!
 
