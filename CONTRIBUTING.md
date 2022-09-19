@@ -18,6 +18,17 @@ There are 4 ways you can contribute to transformers:
 
 *All are equally valuable to the community.*
 
+## License
+
+Note that all contributions are licensed under Apache 2.0 by default. The 
+Technical Steering Committee (TSC) may approve the use of an alternative 
+license or licenses for inbound or outbound contributions on an exception basis. 
+To request an exception, please describe the contribution, the alternative 
+license, and the justification for using an alternative license for the 
+described contribution. License exceptions must be approved by the TSC. 
+Contributed files should contain license information indicating the open 
+source license or licenses pertaining to the file.
+
 ## Submitting a new issue or feature request
 
 Do your best to follow these guidelines when submitting an issue or a feature
