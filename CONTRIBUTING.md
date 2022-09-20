@@ -48,7 +48,7 @@ Did not find it? :( So we can act quickly on it, please follow these steps:
   less than 30s;
 * Provide the *full* traceback if an exception is raised.
 
-### Do you want a new feature (that is not a model)?
+### Do you want a new feature?
 
 A world-class feature request addresses the following points:
 
@@ -78,7 +78,7 @@ BigCode. `git` is not the easiest tool to use but it has the greatest
 manual. Type `git --help` in a shell and enjoy. If you prefer books, [Pro
 Git](https://git-scm.com/book/en/v2) is a very good reference.
 
-Follow these steps to start contributing :
+Follow these steps to start contributing:
 
 1. Fork the repository by
    clicking on the 'Fork' button on the repository's page. This creates a copy of the code
