@@ -1,7 +1,7 @@
 
 # Data analysis
 This folder is intended for data analysis, we are interested in these two datasets: [python-all-license](https://huggingface.co/datasets/BigCode/github_dump_python_only_any_license_decompressed) and [python-safe-license](https://huggingface.co/datasets/BigCode/github_dump_v2_python_only_safe_licenses).
-
+For filtering and near deduplication we use the preprocessing code in [CodeParrot project](https://github.com/huggingface/transformers/tree/main/examples/research_projects/codeparrot)
 ### Notebooks
 You can find 3 notebooks for analyzing the loss of the models trained on these datasets, the file size distribution and loss analysis through clustering.
 
