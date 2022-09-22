@@ -7,7 +7,7 @@ Code for data near deduplication.
 pip install -r requirements.txt
 ````
 
-If you use datasets with diffferent column names from the BigCode ones, you might need to change `PATH_COLUMN` and `CONTENT` variables in `minhash_deduplication.py`. 
+If you use datasets with different column names from the BigCode ones, you might need to change `PATH_COLUMN` and `CONTENT` variables in `minhash_deduplication.py`. 
 
 ### Usage 
 To run near deduplication use the following command and adapt the arguments for your case:
