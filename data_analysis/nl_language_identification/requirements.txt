@@ -1,0 +1,2 @@
+datasets==2.4.0
+fasttext==0.9.2
