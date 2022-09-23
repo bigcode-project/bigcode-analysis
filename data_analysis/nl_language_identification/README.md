@@ -5,7 +5,7 @@ In this folder, we provide code to extract Python docstrings and comment and ide
 # Setup
 We use `fasttext` for language identification, download the language detection model `lid.176.bin` from [fasttext.cc/docs/en/language-identification](https://fasttext.cc/docs/en/language-identification.html) and seve it in `fastext_model`folder. You need to install `fastext` and `datasets` libraries.
 
-````
+```
 pip install fastext
 pip install datasets
 ```
