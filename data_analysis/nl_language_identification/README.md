@@ -18,3 +18,6 @@ python language_identifier.py \
     --model_path fasttext_model/lid.176.bin\
     --save_path ./data/
 ````
+# Analysis
+
+See the notebook `analysis.ipynb`.
