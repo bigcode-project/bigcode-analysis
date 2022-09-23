@@ -8,5 +8,6 @@ This repository is for the analysis done in BigCode Project. You can find analys
   * percentage of configuration/test and uncommon files 
   * file size distribution
   * loss analysis
+We also provide code to run near-deduplication, and to detect natural language of comments in Python datasets.
 
 * **Multi query attention experiments**, for details refer [here](/multi_query_experiments/README.md)
