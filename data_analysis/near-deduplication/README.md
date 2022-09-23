@@ -18,6 +18,7 @@ python near_deduplicate.py \
     --repo_name python_any_license_v2_near_dedup \
     --num_workers 96 \
     --out_path ./data/any_license-near-dedup \
+    --text_column content \
     --test_run False
 ```` 
 To make just a test run with a subset of the data set `test_run` argument to True. 
