@@ -21,3 +21,8 @@ python language_identifier.py \
 # Analysis
 
 See the notebook `analysis.ipynb`.
+
+Detected language distribution on 2,000 samples from CodeParrot data:
+<h3 align="center">
+    <img width="360" height="300" src="https://user-images.githubusercontent.com/44069155/191994477-6246467b-eec7-4ae1-a14d-dd2262254762.png" /></a>
+</h3>
