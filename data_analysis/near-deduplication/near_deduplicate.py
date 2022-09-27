@@ -28,12 +28,6 @@ def parse_args():
             help="column name of the text to dedulicate",
         )
     parser.add_argument(
-            "--num_workers",
-            default=96,
-            type=int,
-            help="number of workers for deduplication",
-        )
-    parser.add_argument(
             "--jaccard_threshold",
             default=0.85,
             type=float,
