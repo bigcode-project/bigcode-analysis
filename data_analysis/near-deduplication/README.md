@@ -16,7 +16,6 @@ python near_deduplicate.py \
     --dataset_name bigcode-data/python_any_license_v2 \
     --org bigcode-data \
     --repo_name python_any_license_v2_near_dedup \
-    --num_workers 96 \
     --out_path ./data/any_license-near-dedup \
     --text_column content \
     --test_run False
