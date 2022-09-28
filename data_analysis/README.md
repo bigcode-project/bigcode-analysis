@@ -28,3 +28,7 @@ File size distribution of random 10k subsets (before and after filtering):
 <img width="493" alt="image" src="https://user-images.githubusercontent.com/44069155/183675926-13bf6f5b-b9c7-4def-91fb-4fb46ee1d505.png">
 
 <img width="493" alt="image" src="https://user-images.githubusercontent.com/44069155/183676271-962dff8b-4759-4950-b8cb-f07d2364ebde.png">
+
+* Code compilation:
+
+We compiled 10k samples from the safe license python dataset, only 0.24% of the files didn't compile due to syntax errors.
