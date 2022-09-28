@@ -1,9 +1,9 @@
 
 # Data analysis
-This folder is intended for data analysis, we are interested in these two datasets: [python-all-license](https://huggingface.co/datasets/BigCode/github_dump_python_only_any_license_decompressed) and [python-safe-license](https://huggingface.co/datasets/BigCode/github_dump_v2_python_only_safe_licenses).
-For filtering and near deduplication we use the preprocessing code in [CodeParrot project](https://github.com/huggingface/transformers/tree/main/examples/research_projects/codeparrot)
+This folder is intended for data analysis, we are interested in these two datasets: [python-all-license](https://huggingface.co/datasets/BigCode/github_dump_python_only_any_license_decompressed) and [python-safe-license](https://huggingface.co/datasets/bigcode/python_safe_license).
+For filtering and near deduplication we use the preprocessing code in [CodeParrot project](https://github.com/huggingface/transformers/tree/main/examples/research_projects/codeparrot). You can also find ,near-deduplication scripts in `near-deduplication` folder in this repo.
 ### Notebooks
-You can find 3 notebooks for analyzing the loss of the models trained on these datasets, the file size distribution and loss analysis through clustering.
+You can find 4 notebooks for analyzing the loss of the models trained on these datasets, the file size distribution, loss analysis through clustering and code compilation.
 
 ### Additional analysis:
 * Filtering:
@@ -31,4 +31,4 @@ File size distribution of random 10k subsets (before and after filtering):
 
 * Code compilation:
 
-We compiled 10k samples from the safe license python dataset, only 0.24% of the files didn't compile due to syntax errors.
+We compiled 10k samples from the safe license python dataset, only 0.24% of the files didn't compile due to syntax errors. See `notebooks/code_compilation.ipynb` notebook.
