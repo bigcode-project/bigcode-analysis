@@ -1,4 +1,4 @@
-datasets==1.16.0
-huggingface-hub==0.1.0
-datasketch==1.5.7
+datasets==2.5.1
+huggingface-hub==0.8.1
+datasketch==1.5.8
 dpu_utils
