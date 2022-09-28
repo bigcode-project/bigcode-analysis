@@ -7,6 +7,12 @@ Code for data near deduplication.
 pip install -r requirements.txt
 ````
 
+Login to be able to be able to push the dataset to the hub after deduplication and clone your huggingface-hub repositories:
+````
+huggingface-cli login
+````
+And make sure you have git-lfs installed.
+
 If you use datasets with different column names from the BigCode ones, you might need to change `PATH_COLUMN` and `CONTENT` variables in `minhash_deduplication.py`. 
 
 ### Usage 
