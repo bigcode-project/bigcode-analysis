@@ -29,6 +29,12 @@ File size distribution of random 10k subsets (before and after filtering):
 
 <img width="493" alt="image" src="https://user-images.githubusercontent.com/44069155/183676271-962dff8b-4759-4950-b8cb-f07d2364ebde.png">
 
+* Natrural language distribution on comments/docstrings:
+Detected language distribution on 2,000 samples from CodeParrot data:
+<h3 align="center">
+    <img width="360" height="300" src="https://user-images.githubusercontent.com/44069155/191994477-6246467b-eec7-4ae1-a14d-dd2262254762.png" /></a>
+</h3>
+
 * Code compilation:
 
 We compiled 10k samples from the safe license python dataset, only 0.24% of the files didn't compile due to syntax errors. See `notebooks/code_compilation.ipynb` notebook.
