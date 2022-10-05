@@ -58,8 +58,8 @@ def find_duplicate_communities(pairs: List[Tuple[int, List[int]]] | Iterable) ->
 
     to_remove: Set[int] = set()
 
-    for c in tqdm(nx.connected_components(g), desc="Finding communities..."):
-        to_remove.update(list(c)[1:])
+    for c in tqdm(nx.community.louvain_communities(g), desc="Finding communities..."):
+        to_remove.update(sorted(c)[1:])
 
     return to_remove
 
@@ -71,7 +71,7 @@ if __name__ == "__main__":
         "num_perm": 256,
         "seed": 42,
         "threshold": 0.85,
-        "dataset": "codeparrot/codeparrot-clean",
+        "dataset": "codeparrot/codeparrot-clean-valid",
         "config": "default",
         "split": "train",
         "column": "content",
