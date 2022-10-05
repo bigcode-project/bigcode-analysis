@@ -1,0 +1,5 @@
+networkx==2.8.7
+datasketch==1.5.8
+rich==12.6.0
+tqdm==4.64.1
+datasets==2.5.1
