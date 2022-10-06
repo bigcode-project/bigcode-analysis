@@ -35,14 +35,14 @@ logger.setLevel(logging.INFO)
 logger.addHandler(RichHandler(rich_tracebacks=True))
 
 
-def find_duplicate_communities(pairs: List[Tuple[int, List[int]]] | Iterable, seed: int = 42) -> Set[int]:
+def find_duplicate_communities(records: Iterable, seed: int = 42) -> Set[int]:
     """
     Find the duplicate communities from pairs of (id, duplicate_ids).
 
     Parameters
     ----------
-    pairs : List[Tuple[int, List[int]]] | Iterable
-        The list of (id, duplicate_ids) pairs.
+    records: Iterable
+        The dataset.
     seed : int, optional
         The seed for the random number generator, by default 42
 
@@ -53,10 +53,10 @@ def find_duplicate_communities(pairs: List[Tuple[int, List[int]]] | Iterable, se
     """
 
     g = nx.Graph()
-    for x, neighbors in tqdm(pairs, desc="Constructing graph...", leave=False):
-        g.add_node(x)
-        for y in neighbors:
-            g.add_edge(x, y)
+    for record in tqdm(records, desc="Constructing graph...", leave=False):
+        g.add_node(record["__id__"])
+        for y in record["__neighbors__"]:
+            g.add_edge(record["__id__"], y)
 
     to_remove: Set[int] = set()
 
@@ -146,7 +146,8 @@ if __name__ == "__main__":
                         LeanMinHash(seed=conf["seed"], hashvalues=record["__signature__"]),
                     )
                     if dup_idx != record["__id__"]  # exclude self
-                ]
+                ],
+                "__id__": record["__id__"],
             }
 
         lsh = MinHashLSH(
@@ -164,15 +165,16 @@ if __name__ == "__main__":
 
         start_time = time.time()
 
-        split_data = split_data.map(
+        embedded = split_data.map(
             function=embed_func,
             num_proc=os.cpu_count(),
             with_indices=True,
             desc=f"Fingerprinting...",
+            remove_columns=split_data.column_names,
         )
 
         with lsh.insertion_session() as session:
-            for data in tqdm(split_data, desc="Indexing signatures"):
+            for data in tqdm(embedded, desc="Indexing signatures"):
                 if data["__id__"] in lsh.keys:
                     continue
                 session.insert(
@@ -181,17 +183,18 @@ if __name__ == "__main__":
                     check_duplication=False,  # We have already checked for duplicates.
                 )
 
-        split_data = split_data.map(
+        queried = embedded.map(
             function=lambda x: query_func(lsh, x),
             num_proc=os.cpu_count(),
             desc=f"Querying...",
             # providing this seems to unstuck the hashing process
             new_fingerprint=hashlib.md5(json.dumps(conf).encode()).hexdigest(),
+            remove_columns=embedded.column_names,
         )
 
         if conf["verbose"]:
             # print some examples
-            duplicates = split_data.filter(
+            duplicates = queried.filter(
                 lambda x: len(x["__neighbors__"]) > 0,
                 num_proc=os.cpu_count(),
                 desc="Finding duplicates..."
@@ -210,7 +213,7 @@ if __name__ == "__main__":
 
             for i in range(10):
                 curr_id = duplicates[i]["__id__"]
-                curr_code = duplicates[i][conf["column"]]
+                curr_code = split_data[curr_id][conf["column"]]
                 for dup_id in duplicates[i]["__neighbors__"][:3]:
                     table.add_row(
                         str(curr_id),
@@ -223,7 +226,7 @@ if __name__ == "__main__":
 
             console.print(table)
 
-        dup_ids = find_duplicate_communities(zip(range(len(split_data)), split_data["__neighbors__"]), seed=conf["seed"])
+        dup_ids = find_duplicate_communities(queried, seed=conf["seed"])
 
         sys.stderr.flush()
         sys.stdout.flush()
@@ -235,12 +238,11 @@ if __name__ == "__main__":
         logger.info(f"Processing time taken: {time.time() - start_time:.2f} seconds")
 
         final_data = split_data.filter(
-            lambda x: x["__id__"] not in dup_ids,
+            lambda _, idx: idx not in dup_ids,
+            with_indices=True,
             num_proc=os.cpu_count(),
             desc="Filtering duplicates..."
         )
-        
-        final_data = final_data.remove_columns(["__signature__", "__neighbors__", "__id__"])
         final_data.save_to_disk("results")
 
         logger.info(f"Total time taken: {time.time() - start_time:.2f} seconds")
