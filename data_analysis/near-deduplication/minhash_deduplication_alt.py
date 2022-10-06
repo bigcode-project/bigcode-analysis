@@ -12,7 +12,7 @@ import re
 import sys
 import textwrap
 import time
-from typing import Iterable
+from typing import Any, Dict, Iterable
 from typing import List
 from typing import Set
 from typing import Tuple
@@ -35,7 +35,7 @@ logger.setLevel(logging.INFO)
 logger.addHandler(RichHandler(rich_tracebacks=True))
 
 
-def find_duplicate_communities(pairs: List[Tuple[int, List[int]]] | Iterable) -> Set[int]:
+def find_duplicate_communities(pairs: List[Tuple[int, List[int]]] | Iterable, seed: int = 42) -> Set[int]:
     """
     Find the duplicate communities from pairs of (id, duplicate_ids).
 
@@ -43,6 +43,8 @@ def find_duplicate_communities(pairs: List[Tuple[int, List[int]]] | Iterable) ->
     ----------
     pairs : List[Tuple[int, List[int]]] | Iterable
         The list of (id, duplicate_ids) pairs.
+    seed : int, optional
+        The seed for the random number generator, by default 42
 
     Returns
     -------
@@ -58,7 +60,7 @@ def find_duplicate_communities(pairs: List[Tuple[int, List[int]]] | Iterable) ->
 
     to_remove: Set[int] = set()
 
-    for c in tqdm(nx.community.louvain_communities(g), desc="Finding communities..."):
+    for c in tqdm(nx.community.louvain_communities(g, seed=seed), desc="Finding communities..."):
         to_remove.update(sorted(c)[1:])
 
     return to_remove
@@ -79,25 +81,54 @@ if __name__ == "__main__":
     }
 
 
-    def embed_func(record, idx):
+    def embed_func(record: Dict[str, Any], idx: int) -> Dict[str, Any]:
+        """
+        Embed the content of a record into a MinHash object.
+
+        Parameters
+        ----------
+        record : Dict[str, Any]
+            The record to embed.
+        idx : int
+            The index of the record.
+
+        Returns
+        -------
+        Dict[str, Any]
+            The MinHash signature and the index of the record.
+        """
         m = MinHash(num_perm=conf["num_perm"], seed=conf["seed"])
         m.update_batch(
-            [token.encode("utf-8") for token in set([t for t in NON_ALPHA.split(record[conf["column"]]) if t])]
+            [token.encode("utf-8") for token in {t for t in NON_ALPHA.split(record[conf["column"]]) if t}]
         )
         return {"__signature__": m.hashvalues, "__id__": idx}
 
 
-    def query_func(index, record, idx):
+    def query_func(index: MinHashLSH, record: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Query the MinHashLSH index for the record.
+
+        Parameters
+        ----------
+        index : MinHashLSH
+            The MinHashLSH index. It is shared across all processes when using multiprocessing with fork without copy.
+        record : Dict[str, Any]
+            The record to query.
+
+        Returns
+        -------
+        Dict[str, Any]
+            The query result.
+        """
         return {
             "__neighbors__": [
                 dup_idx
-                for x in index.query(
+                for dup_idx in index.query(
                     LeanMinHash(seed=conf["seed"], hashvalues=record["__signature__"]),
                 )
-                if (dup_idx := int(x.split("-", 1)[1])) != idx
+                if dup_idx != record["__id__"]  # exclude self
             ]
         }
-
 
     lsh = MinHashLSH(
         threshold=conf["threshold"],
@@ -122,20 +153,21 @@ if __name__ == "__main__":
     )
 
     with lsh.insertion_session() as session:
-        for key, data in enumerate(tqdm(split_data, desc="Indexing signatures")):
-            if f"id-{key}" in lsh.keys:
+        for data in tqdm(split_data, desc="Indexing signatures"):
+            if data["__id__"] in lsh.keys:
                 continue
             session.insert(
-                f"id-{key}",
+                data["__id__"],
                 LeanMinHash(seed=conf["seed"], hashvalues=data["__signature__"]),
+                check_duplication=False,  # We have already checked for duplicates.
             )
 
     split_data = split_data.map(
-        function=lambda x, idx: query_func(lsh, x, idx),
+        function=lambda x: query_func(lsh, x),
         num_proc=os.cpu_count(),
         desc=f"Querying...",
-        with_indices=True,
-        new_fingerprint=hashlib.md5(json.dumps(conf).encode()).hexdigest(),  # this is needed to skip hasher
+        # providing this seems to unstuck the hashing process
+        new_fingerprint=hashlib.md5(json.dumps(conf).encode()).hexdigest(),
     )
 
     if conf["verbose"]:
@@ -172,22 +204,23 @@ if __name__ == "__main__":
 
         console.print(table)
 
-    dup_ids = find_duplicate_communities(zip(range(len(split_data)), split_data["__neighbors__"]))
+    dup_ids = find_duplicate_communities(zip(range(len(split_data)), split_data["__neighbors__"]), seed=conf["seed"])
 
     sys.stderr.flush()
     sys.stdout.flush()
     print()
 
     logger.info(f"Original size: {len(split_data)}")
-    logger.info(f"Removed size: {len(dup_ids)}")
+    logger.info(f"Removed size: {len(dup_ids)} ({len(dup_ids) / len(split_data) * 100:.2f}%)")
+    logger.info(f"Final size: {len(split_data) - len(dup_ids)} ({(len(split_data) - len(dup_ids)) / len(split_data) * 100:.2f}%)")
     logger.info(f"Processing time taken: {time.time() - start_time:.2f} seconds")
 
     final_data = split_data.filter(
-        lambda x, idx: idx not in dup_ids,
-        with_indices=True,
+        lambda x: x["__id__"] not in dup_ids,
         num_proc=os.cpu_count(),
         desc="Filtering duplicates..."
     )
+    
     final_data = final_data.remove_columns(["__signature__", "__neighbors__", "__id__"])
     final_data.save_to_disk("results")
 
