@@ -53,7 +53,7 @@ def find_duplicate_communities(records: Iterable, seed: int = 42) -> Set[int]:
     """
 
     g = nx.Graph()
-    for record in tqdm(records, desc="Constructing graph...", leave=False):
+    for record in tqdm(records, desc="Constructing graph..."):
         if not record["__neighbors__"]:
             continue
         g.add_node(record["__id__"])
@@ -62,7 +62,7 @@ def find_duplicate_communities(records: Iterable, seed: int = 42) -> Set[int]:
 
     to_remove: Set[int] = set()
 
-    for c in tqdm(nx.community.louvain_communities(g, seed=seed), desc="Finding communities...", leave=False):
+    for c in tqdm(nx.community.louvain_communities(g, seed=seed), desc="Finding communities..."):
         to_remove.update(sorted(c)[1:])
 
     return to_remove
@@ -75,6 +75,7 @@ if __name__ == "__main__":
 
     # Make sure the index is global so it can be shared across processes
     lsh = None
+    dup_ids = set()
 
     def run(
         dataset: str = typer.Option("codeparrot/codeparrot-clean-valid", help="The dataset to run the deduplication on"),
@@ -86,8 +87,10 @@ if __name__ == "__main__":
         seed: int = typer.Option(42, help="Seed for random number generator"),
         threshold: float = typer.Option(0.85, help="Threshold for MinHash"),
         verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logging"),
+        sample_size: int = typer.Option(-1, help="Sample size for the dataset"),
     ):
         global lsh
+        global dup_ids
 
         conf = {
             "cache_dir": cache_dir,
@@ -99,6 +102,7 @@ if __name__ == "__main__":
             "split": split,
             "column": column,
             "verbose": verbose,
+            "sample_size": sample_size,
         }
 
 
@@ -165,6 +169,9 @@ if __name__ == "__main__":
             cache_dir=conf["cache_dir"],
         )
 
+        if conf["sample_size"] > 0:
+            split_data = split_data.select(range(conf["sample_size"]))
+
         start_time = time.time()
 
         embedded = split_data.map(
@@ -227,6 +234,8 @@ if __name__ == "__main__":
                 table.add_row(end_section=True)
 
             console.print(table)
+
+        queried.save_to_disk("neighbors")
 
         dup_ids = find_duplicate_communities(queried, seed=conf["seed"])
 
