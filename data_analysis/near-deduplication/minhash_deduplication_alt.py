@@ -100,6 +100,8 @@ def find_duplicate_communities(records: Iterable | Dataset, seed: int = 42) -> S
 
 if __name__ == "__main__":
 
+    dup_ids = set()
+
     def run(
         dataset: str = typer.Option(
             "codeparrot/codeparrot-clean-valid", help="The dataset to run the deduplication on"
@@ -131,6 +133,8 @@ if __name__ == "__main__":
             to_neighbor_results = f"{dataset}_{config}_{split}_{column}_neighbors"
         if to_duplicate_ids is None:
             to_duplicate_ids = f"{dataset}_{config}_{split}_{column}_duplicate_ids.json"
+        
+        global dup_ids
 
         conf = {
             "cache_dir": cache_dir,
@@ -340,7 +344,7 @@ if __name__ == "__main__":
         )
 
         final_data = split_data.filter(
-            lambda _, idx: idx not in dup_ids,
+            lambda _, idx: idx not in dup_ids,  # this will copy dup_ids to each process
             with_indices=True,
             num_proc=os.cpu_count(),
             desc="Filtering duplicates...",
