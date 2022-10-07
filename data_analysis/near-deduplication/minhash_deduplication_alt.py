@@ -13,12 +13,10 @@ import sys
 import textwrap
 import time
 from typing import Any, Dict, Iterable
-from typing import List
 from typing import Set
-from typing import Tuple
 
 import networkx as nx
-from datasets import load_dataset
+from datasets import Dataset, load_dataset, load_from_disk
 from datasketch import LeanMinHash
 from datasketch import MinHash
 from datasketch import MinHashLSH
@@ -28,6 +26,15 @@ from rich.table import Table
 from rich.logging import RichHandler
 from tqdm import tqdm
 
+"""
+Find duplicates in a dataset using MinHash LSH.
+
+1. Avoid calling ds[column]. This can be very slow and memory intensive.
+2. Use ds.map to apply a function to the dataset.
+3. Store intermediate results in a temporary file to avoid recomputing.
+4. Use global variables to be shared across processes when not modifying.
+"""
+
 NON_ALPHA = re.compile("[^A-Za-z_0-9]")
 console = Console()
 logger = logging.getLogger(__name__)
@@ -35,13 +42,13 @@ logger.setLevel(logging.INFO)
 logger.addHandler(RichHandler(rich_tracebacks=True))
 
 
-def find_duplicate_communities(records: Iterable, seed: int = 42) -> Set[int]:
+def find_duplicate_communities(records: Iterable | Dataset, seed: int = 42) -> Set[int]:
     """
     Find the duplicate communities from pairs of (id, duplicate_ids).
 
     Parameters
     ----------
-    records: Iterable
+    records: Iterable | Dataset
         The dataset.
     seed : int, optional
         The seed for the random number generator, by default 42
@@ -62,8 +69,9 @@ def find_duplicate_communities(records: Iterable, seed: int = 42) -> Set[int]:
 
     to_remove: Set[int] = set()
 
-    for c in tqdm(nx.community.louvain_communities(g, seed=seed), desc="Finding communities..."):
-        to_remove.update(sorted(c)[1:])
+    for sub_graph in tqdm(nx.connected_components(g), desc="Finding duplicate communities..."):
+        for c in nx.community.louvain_communities(g.subgraph(sub_graph), seed=seed):
+            to_remove.update(sorted(c)[1:])
 
     return to_remove
 
@@ -71,6 +79,7 @@ def find_duplicate_communities(records: Iterable, seed: int = 42) -> Set[int]:
 if __name__ == "__main__":
 
     import typer
+
     # import tracemalloc
 
     # Make sure the index is global so it can be shared across processes
@@ -78,7 +87,9 @@ if __name__ == "__main__":
     dup_ids = set()
 
     def run(
-        dataset: str = typer.Option("codeparrot/codeparrot-clean-valid", help="The dataset to run the deduplication on"),
+        dataset: str = typer.Option(
+            "codeparrot/codeparrot-clean-valid", help="The dataset to run the deduplication on"
+        ),
         config: str = typer.Option("default", help="The config to use for the dataset"),
         split: str = typer.Option("train", help="The split to use for the dataset"),
         column: str = typer.Option("content", help="The column to use for the dataset"),
@@ -88,6 +99,10 @@ if __name__ == "__main__":
         threshold: float = typer.Option(0.85, help="Threshold for MinHash"),
         verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logging"),
         sample_size: int = typer.Option(-1, help="Sample size for the dataset"),
+        from_intermediate_results: str = typer.Option(None, help="Resume from intermediate dataset where neighbors are stored"),
+        to_intermediate_results: str = typer.Option(
+            "neighbors", help="Intermediate dataset where neighbors will be stored"
+        ),
     ):
         global lsh
         global dup_ids
@@ -104,7 +119,6 @@ if __name__ == "__main__":
             "verbose": verbose,
             "sample_size": sample_size,
         }
-
 
         def embed_func(record: Dict[str, Any], idx: int) -> Dict[str, Any]:
             """
@@ -127,7 +141,6 @@ if __name__ == "__main__":
                 [token.encode("utf-8") for token in {t for t in NON_ALPHA.split(record[conf["column"]]) if t}]
             )
             return {"__signature__": m.hashvalues, "__id__": idx}
-
 
         def query_func(index: MinHashLSH, record: Dict[str, Any]) -> Dict[str, Any]:
             """
@@ -174,68 +187,74 @@ if __name__ == "__main__":
 
         start_time = time.time()
 
-        embedded = split_data.map(
-            function=embed_func,
-            num_proc=os.cpu_count(),
-            with_indices=True,
-            desc=f"Fingerprinting...",
-            remove_columns=split_data.column_names,
-        )
+        if not from_intermediate_results:
 
-        with lsh.insertion_session() as session:
-            for data in tqdm(embedded, desc="Indexing signatures"):
-                if data["__id__"] in lsh.keys:
-                    continue
-                session.insert(
-                    data["__id__"],
-                    LeanMinHash(seed=conf["seed"], hashvalues=data["__signature__"]),
-                    check_duplication=False,  # We have already checked for duplicates.
-                )
-
-        queried = embedded.map(
-            function=lambda x: query_func(lsh, x),
-            num_proc=os.cpu_count(),
-            desc=f"Querying...",
-            # providing this seems to unstuck the hashing process
-            new_fingerprint=hashlib.md5(json.dumps(conf).encode()).hexdigest(),
-            remove_columns=embedded.column_names,
-        )
-
-        if conf["verbose"]:
-            # print some examples
-            duplicates = queried.filter(
-                lambda x: len(x["__neighbors__"]) > 0,
+            embedded = split_data.map(
+                function=embed_func,
                 num_proc=os.cpu_count(),
-                desc="Finding duplicates..."
+                with_indices=True,
+                desc=f"Fingerprinting...",
+                remove_columns=split_data.column_names,
             )
 
-            table = Table(
-                title="Some examples of duplicate code",
-                show_header=True,
-                header_style="bold magenta",
-                box=box.HORIZONTALS,
-            )
-            table.add_column("id", style="dim", width=12)
-            table.add_column("dup id", style="dim", width=12)
-            table.add_column("code", width=80)
-            table.add_column("dup code", width=80)
-
-            for i in range(10):
-                curr_id = duplicates[i]["__id__"]
-                curr_code = split_data[curr_id][conf["column"]]
-                for dup_id in duplicates[i]["__neighbors__"][:3]:
-                    table.add_row(
-                        str(curr_id),
-                        str(dup_id),
-                        "\n".join(textwrap.wrap(curr_code[:240], width=80, placeholder="...")),
-                        "\n".join(textwrap.wrap(split_data[dup_id][conf["column"]][:240], width=80, placeholder="...")),
+            with lsh.insertion_session() as session:
+                for data in tqdm(embedded, desc="Indexing signatures"):
+                    if data["__id__"] in lsh.keys:
+                        continue
+                    session.insert(
+                        data["__id__"],
+                        LeanMinHash(seed=conf["seed"], hashvalues=data["__signature__"]),
+                        check_duplication=False,  # We have already checked for duplicates.
                     )
 
-                table.add_row(end_section=True)
+            queried = embedded.map(
+                function=lambda x: query_func(lsh, x),
+                num_proc=os.cpu_count(),
+                desc=f"Querying...",
+                # providing this seems to unstuck the hashing process
+                new_fingerprint=hashlib.md5(json.dumps(conf).encode()).hexdigest(),
+                remove_columns=embedded.column_names,
+            )
 
-            console.print(table)
+            if conf["verbose"]:
+                # print some examples
+                duplicates = queried.filter(
+                    lambda x: len(x["__neighbors__"]) > 0, num_proc=os.cpu_count(), desc="Finding duplicates..."
+                )
 
-        queried.save_to_disk("neighbors")
+                table = Table(
+                    title="Some examples of duplicate code",
+                    show_header=True,
+                    header_style="bold magenta",
+                    box=box.HORIZONTALS,
+                )
+                table.add_column("id", style="dim", width=12)
+                table.add_column("dup id", style="dim", width=12)
+                table.add_column("code", width=80)
+                table.add_column("dup code", width=80)
+
+                for i in range(10):
+                    curr_id = duplicates[i]["__id__"]
+                    curr_code = split_data[curr_id][conf["column"]]
+                    for dup_id in duplicates[i]["__neighbors__"][:3]:
+                        table.add_row(
+                            str(curr_id),
+                            str(dup_id),
+                            "\n".join(textwrap.wrap(curr_code[:240], width=80, placeholder="...")),
+                            "\n".join(
+                                textwrap.wrap(split_data[dup_id][conf["column"]][:240], width=80, placeholder="...")
+                            ),
+                        )
+
+                    table.add_row(end_section=True)
+
+                console.print(table)
+
+            queried.save_to_disk(to_intermediate_results)
+
+        else:
+
+            queried = load_from_disk(from_intermediate_results)
 
         dup_ids = find_duplicate_communities(queried, seed=conf["seed"])
 
@@ -245,14 +264,16 @@ if __name__ == "__main__":
 
         logger.info(f"Original size: {len(split_data)}")
         logger.info(f"Removed size: {len(dup_ids)} ({len(dup_ids) / len(split_data) * 100:.2f}%)")
-        logger.info(f"Final size: {len(split_data) - len(dup_ids)} ({(len(split_data) - len(dup_ids)) / len(split_data) * 100:.2f}%)")
+        logger.info(
+            f"Final size: {len(split_data) - len(dup_ids)} ({(len(split_data) - len(dup_ids)) / len(split_data) * 100:.2f}%)"
+        )
         logger.info(f"Processing time taken: {time.time() - start_time:.2f} seconds")
 
         final_data = split_data.filter(
             lambda _, idx: idx not in dup_ids,
             with_indices=True,
             num_proc=os.cpu_count(),
-            desc="Filtering duplicates..."
+            desc="Filtering duplicates...",
         )
         final_data.save_to_disk("results")
 
