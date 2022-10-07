@@ -54,6 +54,8 @@ def find_duplicate_communities(records: Iterable, seed: int = 42) -> Set[int]:
 
     g = nx.Graph()
     for record in tqdm(records, desc="Constructing graph...", leave=False):
+        if not record["__neighbors__"]:
+            continue
         g.add_node(record["__id__"])
         for y in record["__neighbors__"]:
             g.add_edge(record["__id__"], y)
