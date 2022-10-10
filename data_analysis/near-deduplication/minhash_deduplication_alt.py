@@ -3,41 +3,25 @@
 # author      : Chenghao Mou (mouchenghao@gmail.com)
 # created     : 10/4/22
 from __future__ import annotations
-from collections import defaultdict
 
-import hashlib
+import gc
 import json
 import logging
 import os
 import re
-import sys
-import textwrap
 import time
-from typing import Any, Dict, Iterable
-from typing import Set
+from collections import defaultdict
+from pathlib import Path
+from typing import Any, Dict, Iterable, Set
 
-import typer
 import graph_tool as gt
-from graph_tool.all import label_components, minimize_nested_blockmodel_dl
-from datasets import Dataset, Features, Value, load_dataset, load_from_disk
-from datasketch import LeanMinHash
-from datasketch import MinHash
-from datasketch import MinHashLSH
-from rich import box
+import typer
+from datasets import Dataset, load_dataset, load_from_disk
+from datasketch import LeanMinHash, MinHash, MinHashLSH
+from graph_tool.all import label_components
 from rich.console import Console
-from rich.table import Table
 from rich.logging import RichHandler
-from rich.progress import track
-from mpire import WorkerPool
-
-"""
-Find duplicates in a dataset using MinHash LSH.
-
-1. Avoid calling ds[column]. This can be very slow and memory intensive.
-2. Use ds.map to apply a function to the dataset.
-3. Use WorkerPool to parallelize the computation if something needs to be shared across processes.
-3. Store intermediate results in a temporary file to avoid recomputing.
-"""
+from tqdm import tqdm
 
 NON_ALPHA = re.compile("[^A-Za-z_0-9]")
 console = Console()
@@ -46,7 +30,96 @@ logger.setLevel(logging.INFO)
 logger.addHandler(RichHandler(rich_tracebacks=True))
 
 
-def find_duplicate_communities(records: Iterable | Dataset, seed: int = 42) -> Set[int]:
+def load_dataset_with_config(conf: Dict[str, Any]):
+
+    ds = load_dataset(
+        conf["dataset"],
+        conf["config"],
+        data_dir=conf["data_dir"],
+        split=conf["split"],
+        use_auth_token=True,
+        cache_dir=conf["cache_dir"],
+    )
+    ds = ds.map(
+        lambda _, idx: {"__id__": idx},
+        with_indices=True,
+        num_proc=os.cpu_count(),
+    )
+
+    if conf["sample_size"] > 0:
+        ds = ds.select(range(conf["sample_size"]))
+
+    return ds
+
+
+def embed_func(idx: int, content: str, *, num_perm: int, seed: int) -> Dict[str, Any]:
+    """
+    Embed the content of a record into a MinHash object.
+
+    Parameters
+    ----------
+    idx : int
+        The index of the record.
+    content : str
+        The content to embed.
+    num_perm : int
+        The number of permutations to use in the MinHash object.
+    seed : int
+        The seed to use in the MinHash object.
+
+    Returns
+    -------
+    Dict[str, Any]
+        The MinHash signature and the index of the record.
+
+    Examples
+    --------
+    >>> result = embed_func(0, "Hello world!", num_perm=128, seed=42)
+    >>> result["__id__"]
+    0
+    >>> result["__signature__"].shape
+    (128,)
+    >>> result["__signature__"].dtype
+    dtype('uint64')
+    """
+    m = MinHash(num_perm=num_perm, seed=seed)
+    m.update_batch([token.encode("utf-8") for token in {t for t in NON_ALPHA.split(content) if t}])
+    return {"__signature__": m.hashvalues, "__id__": idx}
+
+
+def query_func(idx: int, signature, *, index: MinHashLSH, seed: int) -> Dict[str, Any]:
+    """
+    Query the MinHashLSH index for the record.
+
+    Parameters
+    ----------
+    signature
+        The signature of the record.
+    idx : int
+        The index of the record.
+    index : MinHashLSH
+        The MinHashLSH index. It is shared across all processes when using multiprocessing with fork without copy.
+    seed : int
+        The seed to use in the MinHash object.
+
+    Returns
+    -------
+    Dict[str, Any]
+        The query result.
+    """
+    return {
+        "__neighbors__": [
+            dup_idx
+            for dup_idx in index.query(
+                LeanMinHash(seed=seed, hashvalues=signature),
+            )
+            if dup_idx != idx  # exclude self
+        ],
+        "__id__": idx,
+    }
+
+
+def find_duplicate_communities(records: Iterable | Dataset, community_detection: bool = False) -> Set[int]:
     """
     Find the duplicate communities from the queried dataset.
 
@@ -54,45 +127,29 @@ def find_duplicate_communities(records: Iterable | Dataset, seed: int = 42) -> S
     ----------
     records : Iterable | Dataset
         The dataset that contains both `__id__` and `__neighbors__`.
-    seed : int, optional
-        The seed for the random number generator, by default 42
+    community_detection : bool
+        Whether to use community detection to find the duplicate communities, or to use the connected components.
 
     Returns
     -------
     Set[int]
         The set of duplicate ids that should be removed, leaving only one id in each community.
     """
-
-    # Original implementation: slow but more accurate
-    # import networkx as nx
-    # g = nx.Graph()
-    # for record in track(records, description="Constructing graph..."):
-    #     if not record["__neighbors__"]:
-    #         continue
-    #     g.add_node(record["__id__"])
-    #     for y in record["__neighbors__"]:
-    #         g.add_edge(record["__id__"], y)
-
-    # to_remove: Set[int] = set()
-
-    # for sub_graph in track(nx.connected_components(g), description="Finding duplicate communities..."):
-    #     for c in nx.community.louvain_communities(g.subgraph(sub_graph), seed=seed):
-    #         to_remove.update(sorted(c)[1:])
-    
     # Remove all but one of the nodes in each connected component.
+    # This might cause false negatives, but it is much faster than finding communities.
+    assert community_detection is False, "Community detection is not implemented yet."
     ug = gt.Graph(directed=False)
-    for record in track(records, description="Constructing graph..."):
+    for record in tqdm(records, desc="Constructing graph..."):
         ug.add_edge_list([(record["__id__"], y) for y in record["__neighbors__"]])
-    
+
     to_remove: Set[int] = set()
     cluster2ids = defaultdict(set)
     ug.properties[("v", "cluster")] = label_components(ug)[0]  # O(n)
-    
-    for idx, cluster in track(ug.get_vertices(vprops=[ug.vp.cluster]), description="Iterating over vertices..."):
+
+    for idx, cluster in tqdm(ug.get_vertices(vprops=[ug.vp.cluster]), desc="Iterating over vertices..."):
         cluster2ids[cluster].add(idx)
-    
-    # This might cause false negatives, but it is much faster.
-    for cluster, ids in track(cluster2ids.items(), description="Iterating over clusters..."):
+
+    for cluster, ids in tqdm(cluster2ids.items(), desc="Iterating over clusters..."):
         to_remove.update(sorted(ids)[1:])
 
     return to_remove
@@ -100,41 +157,31 @@ def find_duplicate_communities(records: Iterable | Dataset, seed: int = 42) -> S
 
 if __name__ == "__main__":
 
-    dup_ids = set()
-
     def run(
-        dataset: str = typer.Option(
-            "codeparrot/codeparrot-clean-valid", help="The dataset to run the deduplication on"
-        ),
-        config: str = typer.Option("default", help="The config to use for the dataset"),
-        split: str = typer.Option("train", help="The split to use for the dataset"),
-        column: str = typer.Option("content", help="The column to use for the dataset"),
-        cache_dir: str = typer.Option(".cache", help="Cache directory for datasets"),
-        num_perm: int = typer.Option(256, help="Number of permutations for MinHash"),
-        seed: int = typer.Option(42, help="Seed for random number generator"),
-        threshold: float = typer.Option(0.85, help="Threshold for MinHash"),
+        dataset: str = typer.Option("codeparrot/codeparrot-clean-valid", help="The dataset to use"),
+        config: str = typer.Option("default", help="Dataset config"),
+        data_dir: str = typer.Option(None, help="Dataset data directory"),
+        split: str = typer.Option("train", help="Dataset split"),
+        column: str = typer.Option("content", help="Dataset column"),
+        cache_dir: str = typer.Option(".cache", help="Cache directory"),
+        num_perm: int = typer.Option(128, help="Number of permutations"),
+        seed: int = typer.Option(42, help="Random seed"),
+        threshold: float = typer.Option(0.85, help="Minhash threshold"),
         verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logging"),
-        sample_size: int = typer.Option(-1, help="Sample size for the dataset"),
-        from_neighbor_results: str = typer.Option(
-            None, help="Resume from a dataset where neighbors have already been computed"
-        ),
-        to_neighbor_results: str = typer.Option(
-            None, help="Store the neighbor results in a dataset, default f`{dataset}_{config}_{split}_{column}_neighbors`"
-        ),
-        from_duplicate_ids: str = typer.Option(
-            None, help="Resume from a json file where duplicate ids have already been computed"
-        ),
-        to_duplicate_ids: str = typer.Option(
-            None, help="Store the duplicate ids in a json file, default f`{dataset}_{config}_{split}_{column}_duplicate_ids.json`"
-        ),
-        output: str = typer.Option("results", help="Store the deduplicated data in a dataset"),
+        sample_size: int = typer.Option(-1, help="Sample size"),
+        input_neighbor_dataset: str = typer.Option(None, help="Resume from a queried dataset"),
+        output_neighbor_dataset: str = typer.Option(None, help="Store a queried dataset"),
+        input_duplicate_ids: str = typer.Option(None, help="Resume from computed duplicate ids"),
+        output_duplicate_ids: str = typer.Option(None, help="Store computed duplicate ids"),
+        output: str = typer.Option(None, help="Store the deduplicated dataset"),
     ):
-        if to_neighbor_results is None:
-            to_neighbor_results = f"{dataset}_{config}_{split}_{column}_neighbors"
-        if to_duplicate_ids is None:
-            to_duplicate_ids = f"{dataset}_{config}_{split}_{column}_duplicate_ids.json"
-        
-        global dup_ids
+
+        OUTPUT_BASE = Path("results") / dataset / config / (data_dir or "all") / split / column
+        OUTPUT_BASE.mkdir(exist_ok=True, parents=True)
+
+        output_neighbor_dataset = output_neighbor_dataset or OUTPUT_BASE / "neighbors"
+        output_duplicate_ids = output_duplicate_ids or OUTPUT_BASE / "duplicate_ids.json"
+        output = output or OUTPUT_BASE / "deduplicated"
 
         conf = {
             "cache_dir": cache_dir,
@@ -143,215 +190,117 @@ if __name__ == "__main__":
             "threshold": threshold,
             "dataset": dataset,
             "config": config,
+            "data_dir": data_dir,
             "split": split,
             "column": column,
             "verbose": verbose,
             "sample_size": sample_size,
-            "from_neighbor_results": from_neighbor_results,
-            "to_neighbor_results": to_neighbor_results,
-            "from_duplicate_ids": from_duplicate_ids,
-            "to_duplicate_ids": to_duplicate_ids,
+            "input_neighbor_dataset": input_neighbor_dataset,
+            "input_neighbor_dataset": input_neighbor_dataset,
+            "input_duplicate_ids": input_duplicate_ids,
+            "output_duplicate_ids": output_duplicate_ids,
+            "output": output,
         }
 
-        def embed_func(record: Dict[str, Any], idx: int) -> Dict[str, Any]:
-            """
-            Embed the content of a record into a MinHash object.
-
-            Parameters
-            ----------
-            record : Dict[str, Any]
-                The record to embed.
-            idx : int
-                The index of the record.
-
-            Returns
-            -------
-            Dict[str, Any]
-                The MinHash signature and the index of the record.
-            """
-            m = MinHash(num_perm=conf["num_perm"], seed=conf["seed"])
-            m.update_batch(
-                [token.encode("utf-8") for token in {t for t in NON_ALPHA.split(record[conf["column"]]) if t}]
-            )
-            return {"__signature__": m.hashvalues, "__id__": idx}
-
-        def query_func(index: MinHashLSH, **record: Dict[str, Any]) -> Dict[str, Any]:
-            """
-            Query the MinHashLSH index for the record.
-
-            Parameters
-            ----------
-            index : MinHashLSH
-                The MinHashLSH index. It is shared across all processes when using multiprocessing with fork without copy.
-            record : Dict[str, Any]
-                The record to query.
-
-            Returns
-            -------
-            Dict[str, Any]
-                The query result.
-            """
-            return {
-                "__neighbors__": [
-                    dup_idx
-                    for dup_idx in index.query(
-                        LeanMinHash(seed=conf["seed"], hashvalues=record["__signature__"]),
-                    )
-                    if dup_idx != record["__id__"]  # exclude self
-                ],
-                "__id__": record["__id__"],
-            }
-
+        # Use a database backend so that the index can be shared across all processes.
         lsh = MinHashLSH(
             threshold=conf["threshold"],
             num_perm=conf["num_perm"],
+            storage_config={
+                "type": "redis",
+                "redis": {"host": "localhost", "port": 6379},
+            },
         )
 
-        split_data = load_dataset(
-            conf["dataset"],
-            conf["config"],
-            split=conf["split"],
-            use_auth_token=True,
-            cache_dir=conf["cache_dir"],
-        )
-
-        if conf["sample_size"] > 0:
-            split_data = split_data.select(range(conf["sample_size"]))
-
-        N = len(split_data)
+        ds = load_dataset_with_config(conf)
+        DATA_SIZE = len(ds)
         start_time = time.time()
 
-        if not from_neighbor_results:
+        if not input_neighbor_dataset:
 
-            embedded = split_data.map(
+            # region: embed
+            embedded = ds.map(
                 function=embed_func,
+                fn_kwargs={"num_perm": conf["num_perm"], "seed": conf["seed"]},
+                input_columns=["__id__", conf["column"]],
+                remove_columns=[conf["column"]],
                 num_proc=os.cpu_count(),
-                with_indices=True,
                 desc=f"Fingerprinting...",
-                remove_columns=split_data.column_names,
             )
 
-            del split_data
+            del ds
+            gc.collect()
+            # endregion
 
-            with lsh.insertion_session() as session:
-                for data in track(embedded, description="Indexing signatures"):
-                    if data["__id__"] in lsh.keys:
-                        continue
+            # region: index
+            with lsh.insertion_session(buffer_size=100000) as session:
+                for data in tqdm(embedded, desc="Indexing signatures..."):
                     session.insert(
                         data["__id__"],
                         LeanMinHash(seed=conf["seed"], hashvalues=data["__signature__"]),
-                        check_duplication=False,  # We have already checked for duplicates.
+                        check_duplication=False,  # We assigned unique ids, so we skip this check.
                     )
+            # endregion
 
-            # As multiprocessing copies the index, we avoid this if necessary.
-            # queried = embedded.map(
-            #     function=lambda x: query_func(lsh, x),
-            #     num_proc=os.cpu_count(),
-            #     desc=f"Querying...",
-            #     # providing this seems to unstuck the hashing process
-            #     new_fingerprint=hashlib.md5(json.dumps(conf).encode()).hexdigest(),
-            #     remove_columns=embedded.column_names,
-            # )
-
-            # This reduces the memory load but it is slower and not cached
-            with WorkerPool(n_jobs=os.cpu_count(), shared_objects=lsh) as pool:
-                queried = pool.map(
-                    query_func,
-                    embedded,
-                    progress_bar=True,
-                    progress_bar_options={"desc": "Querying..."},
-                )
-                queried = Dataset.from_list(
-                    queried, features=Features({"__neighbors__": [Value("int64")], "__id__": Value("int64")})
-                )
-
-            # if conf["verbose"]:
-            #     # print some examples
-            #     duplicates = queried.filter(
-            #         lambda x: len(x["__neighbors__"]) > 0, num_proc=os.cpu_count(), desc="Finding duplicates..."
-            #     )
-
-            #     table = Table(
-            #         title="Some examples of duplicate code",
-            #         show_header=True,
-            #         header_style="bold magenta",
-            #         box=box.HORIZONTALS,
-            #     )
-            #     table.add_column("id", style="dim", width=12)
-            #     table.add_column("dup id", style="dim", width=12)
-            #     table.add_column("code", width=80)
-            #     table.add_column("dup code", width=80)
-
-            #     for i in range(10):
-            #         curr_id = duplicates[i]["__id__"]
-            #         curr_code = split_data[curr_id][conf["column"]]
-            #         for dup_id in duplicates[i]["__neighbors__"][:3]:
-            #             table.add_row(
-            #                 str(curr_id),
-            #                 str(dup_id),
-            #                 "\n".join(textwrap.wrap(curr_code[:240], width=80, placeholder="...")),
-            #                 "\n".join(
-            #                     textwrap.wrap(split_data[dup_id][conf["column"]][:240], width=80, placeholder="...")
-            #                 ),
-            #             )
-
-            #         table.add_row(end_section=True)
-
-            #     console.print(table)
-
-            queried.save_to_disk(to_neighbor_results)
-
-        else:
-
-            queried = load_from_disk(from_neighbor_results)
-        
-        del lsh
-
-
-        if not from_duplicate_ids:
-            queried = queried.filter(
-                lambda x: len(x["__neighbors__"]) > 0,
+            # region: query
+            queried = embedded.map(
+                function=query_func,
+                fn_kwargs={"index": lsh, "seed": conf["seed"]},
+                input_columns=["__id__", "__signature__"],
+                remove_columns=["__signature__"],
                 num_proc=os.cpu_count(),
-                desc="Finding duplicates..."
+                desc=f"Querying...",
             )
-            dup_ids = find_duplicate_communities(queried, seed=conf["seed"])
+            # endregion
 
-            with open(to_duplicate_ids, "w") as f:
+            queried.save_to_disk(output_neighbor_dataset)
+        else:
+            queried = load_from_disk(input_neighbor_dataset)
+
+        del lsh
+        gc.collect()
+
+        if not input_duplicate_ids:
+            queried = queried.filter(
+                lambda x: len(x["__neighbors__"]) > 0, num_proc=os.cpu_count(), desc="Finding duplicates..."
+            )
+            dup_ids = find_duplicate_communities(queried)
+
+            with open(output_duplicate_ids, "w") as f:
                 json.dump(list(map(str, dup_ids)), f)
         else:
-            with open(from_duplicate_ids, "r") as f:
+            with open(input_duplicate_ids, "r") as f:
                 dup_ids = set((map(int, json.load(f))))
 
         del queried
+        gc.collect()
 
-        sys.stderr.flush()
-        sys.stdout.flush()
-        print()
-
-        logger.info(f"Original size: {N}")
-        logger.info(f"Removed size: {len(dup_ids)} ({len(dup_ids) / N* 100:.2f}%)")
-        logger.info(
-            f"Final size: {N - len(dup_ids)} ({(N - len(dup_ids)) / N * 100:.2f}%)"
-        )
         logger.info(f"Processing time taken: {time.time() - start_time:.2f} seconds")
 
-        split_data = load_dataset(
-            conf["dataset"],
-            conf["config"],
-            split=conf["split"],
-            use_auth_token=True,
-            cache_dir=conf["cache_dir"],
-        )
-
-        final_data = split_data.filter(
-            lambda _, idx: idx not in dup_ids,  # this will copy dup_ids to each process
+        # region: deduplicate
+        ds = load_dataset_with_config(conf)
+        final_data = ds.filter(
+            lambda _, idx: idx not in dup_ids,  # this will copy dup_ids to each process when using multiprocessing
             with_indices=True,
             num_proc=os.cpu_count(),
             desc="Filtering duplicates...",
         )
-        final_data.save_to_disk(output)
 
-        logger.info(f"Total time taken: {time.time() - start_time:.2f} seconds")
+        del ds
+        gc.collect()
+
+        final_data.save_to_disk(output)
+        # endregion
+
+        FINAL_DATA_SIZE = len(final_data)
+        DUP_SIZE = DATA_SIZE - FINAL_DATA_SIZE
+        LAN = (data_dir or "all").split("/")[-1]
+        logger.info(
+            f"| {LAN} "
+            f"| {DATA_SIZE} "
+            f"| {DUP_SIZE} ({DUP_SIZE / DATA_SIZE * 100:.2f}%) "
+            f"| {time.time() - start_time:.2f} sec |"
+        )
         logger.info("🤗 Happy Deduplicating 🤗")
 
     typer.run(run)
