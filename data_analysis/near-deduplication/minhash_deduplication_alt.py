@@ -9,6 +9,7 @@ import glob
 import hashlib
 import json
 import logging
+import multiprocessing
 import os
 import pickle
 import re
@@ -16,8 +17,11 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, Set
 
+multiprocessing.set_start_method('fork')
+
 import networkit as nk
 import typer
+import numpy as np
 from datasets import Dataset, Features, Sequence, Value, concatenate_datasets, load_dataset, load_from_disk
 from datasketch import LeanMinHash, MinHash, MinHashLSH
 from mpire import WorkerPool
@@ -106,7 +110,7 @@ def embed_func(idx: int, content: str, *, num_perm: int) -> Dict[str, Any]:
     return {"__signature__": m.hashvalues, "__id__": idx}
 
 
-def query_func(index: MinHashLSH, **record: Dict[str, Any]) -> Dict[str, Any]:
+def query_func(idx: int, signature: np.ndarray, *, index: MinHashLSH) -> Dict[str, Any]:
     """
     Query the MinHashLSH index for the record.
 
@@ -126,11 +130,11 @@ def query_func(index: MinHashLSH, **record: Dict[str, Any]) -> Dict[str, Any]:
         "__neighbors__": [
             dup_idx
             for dup_idx in index.query(
-                LeanMinHash(seed=MINHASH_SEED, hashvalues=record["__signature__"]),
+                LeanMinHash(seed=MINHASH_SEED, hashvalues=signature),
             )
-            if dup_idx != record["__id__"]  # exclude itself
+            if dup_idx != idx  # exclude itself
         ],
-        "__id__": record["__id__"],
+        "__id__": idx,
     }
 
 
@@ -169,6 +173,9 @@ def find_duplicate_communities(records: Iterable | Dataset, community_detection:
 
 if __name__ == "__main__":
 
+    # Since multiprocessing with fork is copy-on-write, we need to use global variables to share objects across processes.
+    # This might not be the case on some systems where objects are pickled and sent to the child processes.
+    # One way to check is to print the id of the object in the child processes and see if they are the same.
     lsh = None
     dup_ids = None
 
@@ -179,7 +186,7 @@ if __name__ == "__main__":
         split: str = typer.Option("train", help="Dataset split"),
         column: str = typer.Option("content", help="Dataset column"),
         cache_dir: str = typer.Option(".cache", help="Cache directory"),
-        num_perm: int = typer.Option(128, help="Number of permutations"),
+        num_perm: int = typer.Option(256, help="Number of permutations"),
         seed: int = typer.Option(42, help="Random seed"),
         threshold: float = typer.Option(0.85, help="Minhash threshold"),
         verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logging"),
@@ -233,20 +240,9 @@ if __name__ == "__main__":
             "concat_output": output_concat,
         }
 
-        # Option 1:
-        #   Use a reusable database backend (slow)
-        #   Easy to parallelize queries (still slow though)
-        # Option 2:
-        #   Use an in-memory backend (fast)
-        #   Hard to parallelize queries (trade off between memory and speed, see below)
         lsh = MinHashLSH(
             threshold=conf["threshold"],
             num_perm=conf["num_perm"],
-            # storage_config={
-            #     "type": "redis",
-            #     "redis": {"host": "localhost", "port": 6379},
-            #     "basename": str(OUTPUT_BASE).encode("utf-8"),
-            # },
         )
 
         ds = load_dataset_with_config(conf)
@@ -281,39 +277,21 @@ if __name__ == "__main__":
                             continue
                         session.insert(
                             data["__id__"],
-                            LeanMinHash(seed=42, hashvalues=data["__signature__"]),
+                            LeanMinHash(seed=MINHASH_SEED, hashvalues=data["__signature__"]),
                             check_duplication=False,
                         )
                 pickle.dump(lsh, open(output_index, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
             # endregion
 
             # region: query
-            # Option 1: This is the fastest but consumes the most memory.
-            import psutil
-
-            m = psutil.virtual_memory()
-            index_size = os.path.getsize(output_index)
-            num_proc = min(20, m.available // index_size, os.cpu_count())
-            logger.info(f"Index size: {index_size / 1024 / 1024:.2f} MB")
-            logger.info(f"Available memory: {m.available / 1024 / 1024:.2f} MB")
-            logger.info(f"Setting maximum processing to {num_proc}")
-
             queried = embedded.map(
-                lambda x: query_func(lsh, **x),
-                num_proc=num_proc,
-                new_fingerprint=hashlib.md5((str(output_neighbor_dataset) + str(num_proc)).encode("utf-8")).hexdigest(),
+                lambda x, y: query_func(x, y, index=lsh),  # Do not use fn_kwargs here, it will be pickled instead.
+                num_proc=os.cpu_count(),
+                new_fingerprint=hashlib.md5(pickle.dumps(conf)).hexdigest(),
+                input_columns=["__id__", "__signature__"],
                 remove_columns=["__signature__"],
                 desc=f"Querying...",
             )
-            # Option 2: This saves the memory by sharing one index but is much slower.
-            # with WorkerPool(n_jobs=os.cpu_count(), shared_objects=lsh) as pool:
-            #     queried = pool.map_unordered(
-            #         query_func,
-            #         embedded,
-            #         progress_bar=True,
-            #         progress_bar_options={"desc": "Querying..."},
-            #     )
-            #     queried = Dataset.from_list(queried, features=Features({"__id__": Value("uint64"), "__neighbors__": Sequence(Value("uint64"))}))
             # endregion
 
             queried.save_to_disk(output_neighbor_dataset)
@@ -343,6 +321,7 @@ if __name__ == "__main__":
         logger.info(f"Processing time taken: {time.time() - start_time:.2f} seconds")
 
         # region: deduplicate
+        # Reload the original dataset
         ds = load_dataset_with_config(conf)
         final_data = ds.filter(
             lambda _, idx: idx not in dup_ids,
