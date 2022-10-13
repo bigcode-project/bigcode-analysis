@@ -5,24 +5,27 @@
 from __future__ import annotations
 
 import gc
+import glob
+import hashlib
 import json
 import logging
 import os
+import pickle
 import re
 import time
-from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, Iterable, Set
 
-import graph_tool as gt
+import networkit as nk
 import typer
-from datasets import Dataset, load_dataset, load_from_disk
+from datasets import Dataset, Features, Sequence, Value, concatenate_datasets, load_dataset, load_from_disk
 from datasketch import LeanMinHash, MinHash, MinHashLSH
-from graph_tool.all import label_components
+from mpire import WorkerPool
 from rich.console import Console
 from rich.logging import RichHandler
 from tqdm import tqdm
 
+MINHASH_SEED = 42
 NON_ALPHA = re.compile("[^A-Za-z_0-9]")
 console = Console()
 logger = logging.getLogger(__name__)
@@ -32,18 +35,34 @@ logger.addHandler(RichHandler(rich_tracebacks=True))
 
 def load_dataset_with_config(conf: Dict[str, Any]):
 
-    ds = load_dataset(
-        conf["dataset"],
-        conf["config"],
-        data_dir=conf["data_dir"],
-        split=conf["split"],
-        use_auth_token=True,
-        cache_dir=conf["cache_dir"],
-    )
+    # Load from hub
+    if not conf["lfs"]:
+        ds = load_dataset(
+            conf["dataset"],
+            conf["config"],
+            data_dir=conf["data_dir"],
+            split=conf["split"],
+            use_auth_token=True,
+            cache_dir=conf["cache_dir"],
+        )
+    # Or load from git lfs files
+    elif not os.path.exists(conf["concat_output"]):
+        datasets = []
+        for file in tqdm(sorted(glob.glob(conf["data_dir"] + "/*.jsonl")), desc="Loading datasets..."):
+            datasets.append(load_dataset("json", data_files=file, split=conf["split"], cache_dir=conf["cache_dir"]))
+        ds = concatenate_datasets(datasets)
+        ds.save_to_disk(conf["concat_output"])
+        ds = load_from_disk(conf["concat_output"])
+    # Or load from the concatenated dataset
+    else:
+        ds = load_from_disk(conf["concat_output"])
+
+    # Assign unique index to each record
     ds = ds.map(
         lambda _, idx: {"__id__": idx},
         with_indices=True,
         num_proc=os.cpu_count(),
+        desc="Adding index...",
     )
 
     if conf["sample_size"] > 0:
@@ -52,7 +71,7 @@ def load_dataset_with_config(conf: Dict[str, Any]):
     return ds
 
 
-def embed_func(idx: int, content: str, *, num_perm: int, seed: int) -> Dict[str, Any]:
+def embed_func(idx: int, content: str, *, num_perm: int) -> Dict[str, Any]:
     """
     Embed the content of a record into a MinHash object.
 
@@ -82,25 +101,21 @@ def embed_func(idx: int, content: str, *, num_perm: int, seed: int) -> Dict[str,
     >>> result["__signature__"].dtype
     dtype('uint64')
     """
-    m = MinHash(num_perm=num_perm, seed=seed)
+    m = MinHash(num_perm=num_perm, seed=MINHASH_SEED)
     m.update_batch([token.encode("utf-8") for token in {t for t in NON_ALPHA.split(content) if t}])
     return {"__signature__": m.hashvalues, "__id__": idx}
 
 
-def query_func(idx: int, signature, *, index: MinHashLSH, seed: int) -> Dict[str, Any]:
+def query_func(index: MinHashLSH, **record: Dict[str, Any]) -> Dict[str, Any]:
     """
     Query the MinHashLSH index for the record.
 
     Parameters
     ----------
-    signature
-        The signature of the record.
-    idx : int
-        The index of the record.
     index : MinHashLSH
         The MinHashLSH index. It is shared across all processes when using multiprocessing with fork without copy.
-    seed : int
-        The seed to use in the MinHash object.
+    record : Dict[str, Any]
+        The record to query.
 
     Returns
     -------
@@ -111,11 +126,11 @@ def query_func(idx: int, signature, *, index: MinHashLSH, seed: int) -> Dict[str
         "__neighbors__": [
             dup_idx
             for dup_idx in index.query(
-                LeanMinHash(seed=seed, hashvalues=signature),
+                LeanMinHash(seed=MINHASH_SEED, hashvalues=record["__signature__"]),
             )
-            if dup_idx != idx  # exclude self
+            if dup_idx != record["__id__"]  # exclude itself
         ],
-        "__id__": idx,
+        "__id__": record["__id__"],
     }
 
 
@@ -137,25 +152,25 @@ def find_duplicate_communities(records: Iterable | Dataset, community_detection:
     """
     # Remove all but one of the nodes in each connected component.
     # This might cause false negatives, but it is much faster than finding communities.
-    assert community_detection is False, "Community detection is not implemented yet."
-    ug = gt.Graph(directed=False)
-    for record in tqdm(records, desc="Constructing graph..."):
-        ug.add_edge_list([(record["__id__"], y) for y in record["__neighbors__"]])
+    assert community_detection is False, "Community detection is not implemented due to speed constraint."
+    g = nk.graph.Graph()
+    for record in tqdm(records, desc="Constructing graph..."):  # This creats a bottleneck since it is not parallelized.
+        for y in record["__neighbors__"]:
+            g.addEdge(record["__id__"], y, addMissing=True)
 
+    # connected components
+    cc = nk.components.ConnectedComponents(g).run().getComponents()  # O(n)
     to_remove: Set[int] = set()
-    cluster2ids = defaultdict(set)
-    ug.properties[("v", "cluster")] = label_components(ug)[0]  # O(n)
-
-    for idx, cluster in tqdm(ug.get_vertices(vprops=[ug.vp.cluster]), desc="Iterating over vertices..."):
-        cluster2ids[cluster].add(idx)
-
-    for cluster, ids in tqdm(cluster2ids.items(), desc="Iterating over clusters..."):
+    for ids in tqdm(cc, desc="Iterating over clusters..."):
         to_remove.update(sorted(ids)[1:])
 
     return to_remove
 
 
 if __name__ == "__main__":
+
+    lsh = None
+    dup_ids = None
 
     def run(
         dataset: str = typer.Option("codeparrot/codeparrot-clean-valid", help="The dataset to use"),
@@ -174,14 +189,28 @@ if __name__ == "__main__":
         input_duplicate_ids: str = typer.Option(None, help="Resume from computed duplicate ids"),
         output_duplicate_ids: str = typer.Option(None, help="Store computed duplicate ids"),
         output: str = typer.Option(None, help="Store the deduplicated dataset"),
+        lfs: bool = typer.Option(False, help="Use LFS files"),
     ):
+        global lsh
+        global dup_ids
 
         OUTPUT_BASE = Path("results") / dataset / config / (data_dir or "all") / split / column
         OUTPUT_BASE.mkdir(exist_ok=True, parents=True)
 
-        output_neighbor_dataset = output_neighbor_dataset or OUTPUT_BASE / "neighbors"
-        output_duplicate_ids = output_duplicate_ids or OUTPUT_BASE / "duplicate_ids.json"
-        output = output or OUTPUT_BASE / "deduplicated"
+        output_neighbor_dataset = output_neighbor_dataset or (OUTPUT_BASE / "neighbors")
+        output_duplicate_ids = output_duplicate_ids or (OUTPUT_BASE / "duplicate_ids.json")
+        output = output or (OUTPUT_BASE / "deduplicated")
+        output_concat = OUTPUT_BASE / "concat"
+        output_index = OUTPUT_BASE / "index.pkl"
+        output_unique_paths = OUTPUT_BASE / "unique_paths.json"
+
+        logger.info(f"Output base: {OUTPUT_BASE}")
+        logger.info(f"Concat output: {output_concat}")
+        logger.info(f"Index output: {output_index}")
+        logger.info(f"Neighbor dataset output: {output_neighbor_dataset}")
+        logger.info(f"Duplicate ids output: {output_duplicate_ids}")
+        logger.info(f"Unique paths output: {output_unique_paths}")
+        logger.info(f"Output: {output}")
 
         conf = {
             "cache_dir": cache_dir,
@@ -200,28 +229,36 @@ if __name__ == "__main__":
             "input_duplicate_ids": input_duplicate_ids,
             "output_duplicate_ids": output_duplicate_ids,
             "output": output,
+            "lfs": lfs,
+            "concat_output": output_concat,
         }
 
-        # Use a database backend so that the index can be shared across all processes.
+        # Option 1:
+        #   Use a reusable database backend (slow)
+        #   Easy to parallelize queries (still slow though)
+        # Option 2:
+        #   Use an in-memory backend (fast)
+        #   Hard to parallelize queries (trade off between memory and speed, see below)
         lsh = MinHashLSH(
             threshold=conf["threshold"],
             num_perm=conf["num_perm"],
-            storage_config={
-                "type": "redis",
-                "redis": {"host": "localhost", "port": 6379},
-            },
+            # storage_config={
+            #     "type": "redis",
+            #     "redis": {"host": "localhost", "port": 6379},
+            #     "basename": str(OUTPUT_BASE).encode("utf-8"),
+            # },
         )
 
         ds = load_dataset_with_config(conf)
         DATA_SIZE = len(ds)
         start_time = time.time()
 
-        if not input_neighbor_dataset:
+        if not input_neighbor_dataset and not input_duplicate_ids:
 
             # region: embed
             embedded = ds.map(
                 function=embed_func,
-                fn_kwargs={"num_perm": conf["num_perm"], "seed": conf["seed"]},
+                fn_kwargs={"num_perm": conf["num_perm"]},
                 input_columns=["__id__", conf["column"]],
                 remove_columns=[conf["column"]],
                 num_proc=os.cpu_count(),
@@ -233,29 +270,57 @@ if __name__ == "__main__":
             # endregion
 
             # region: index
-            with lsh.insertion_session(buffer_size=100000) as session:
-                for data in tqdm(embedded, desc="Indexing signatures..."):
-                    session.insert(
-                        data["__id__"],
-                        LeanMinHash(seed=conf["seed"], hashvalues=data["__signature__"]),
-                        check_duplication=False,  # We assigned unique ids, so we skip this check.
-                    )
+            if os.path.exists(output_index):
+                logger.info(f"Loading index from {output_index}")
+                with open(output_index, "rb") as f:
+                    lsh = pickle.load(f)
+            else:
+                with lsh.insertion_session() as session:
+                    for data in tqdm(embedded, desc="Indexing signatures..."):
+                        if data["__id__"] in lsh:
+                            continue
+                        session.insert(
+                            data["__id__"],
+                            LeanMinHash(seed=42, hashvalues=data["__signature__"]),
+                            check_duplication=False,
+                        )
+                pickle.dump(lsh, open(output_index, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
             # endregion
 
             # region: query
+            # Option 1: This is the fastest but consumes the most memory.
+            import psutil
+
+            m = psutil.virtual_memory()
+            index_size = os.path.getsize(output_index)
+            num_proc = min(20, m.available // index_size, os.cpu_count())
+            logger.info(f"Index size: {index_size / 1024 / 1024:.2f} MB")
+            logger.info(f"Available memory: {m.available / 1024 / 1024:.2f} MB")
+            logger.info(f"Setting maximum processing to {num_proc}")
+
             queried = embedded.map(
-                function=query_func,
-                fn_kwargs={"index": lsh, "seed": conf["seed"]},
-                input_columns=["__id__", "__signature__"],
+                lambda x: query_func(lsh, **x),
+                num_proc=num_proc,
+                new_fingerprint=hashlib.md5((str(output_neighbor_dataset) + str(num_proc)).encode("utf-8")).hexdigest(),
                 remove_columns=["__signature__"],
-                num_proc=os.cpu_count(),
                 desc=f"Querying...",
             )
+            # Option 2: This saves the memory by sharing one index but is much slower.
+            # with WorkerPool(n_jobs=os.cpu_count(), shared_objects=lsh) as pool:
+            #     queried = pool.map_unordered(
+            #         query_func,
+            #         embedded,
+            #         progress_bar=True,
+            #         progress_bar_options={"desc": "Querying..."},
+            #     )
+            #     queried = Dataset.from_list(queried, features=Features({"__id__": Value("uint64"), "__neighbors__": Sequence(Value("uint64"))}))
             # endregion
 
             queried.save_to_disk(output_neighbor_dataset)
-        else:
+        elif not input_duplicate_ids:
             queried = load_from_disk(input_neighbor_dataset)
+        else:
+            queried = None
 
         del lsh
         gc.collect()
@@ -280,14 +345,19 @@ if __name__ == "__main__":
         # region: deduplicate
         ds = load_dataset_with_config(conf)
         final_data = ds.filter(
-            lambda _, idx: idx not in dup_ids,  # this will copy dup_ids to each process when using multiprocessing
+            lambda _, idx: idx not in dup_ids,
             with_indices=True,
             num_proc=os.cpu_count(),
             desc="Filtering duplicates...",
         )
 
-        del ds
-        gc.collect()
+        with open(output_unique_paths, "w") as f:
+            temp = final_data.map(
+                lambda x: {"url": x["repository_name"] + "/" + x["path"]},
+                num_proc=os.cpu_count(),
+                remove_columns=final_data.column_names,
+            )
+            json.dump(list(set(temp["url"])), f)
 
         final_data.save_to_disk(output)
         # endregion
