@@ -17,14 +17,14 @@ import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, Set
 
-multiprocessing.set_start_method('fork')
+# os.environ['KMP_DUPLICATE_LIB_OK']='True'
+multiprocessing.set_start_method("fork", force=True)
 
 import networkit as nk
-import typer
 import numpy as np
-from datasets import Dataset, Features, Sequence, Value, concatenate_datasets, load_dataset, load_from_disk
+import typer
+from datasets import Dataset, concatenate_datasets, load_dataset, load_from_disk
 from datasketch import LeanMinHash, MinHash, MinHashLSH
-from mpire import WorkerPool
 from rich.console import Console
 from rich.logging import RichHandler
 from tqdm import tqdm
@@ -36,8 +36,39 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(RichHandler(rich_tracebacks=True))
 
+# With multiprocessing and copy-on-write fork (Linux and macOS), 
+# we can use global variables to share objects across processes.
+# This might not be the case on some systems where objects are 
+# pickled and sent to the child processes. It might also not be reflected 
+# when you use top command to check the memory usage. One way to check is to 
+# print the id of the object in the child processes and see if they are the same.
+# References: 
+# 1. https://stackoverflow.com/questions/38084401/leveraging-copy-on-write-to-copy-data-to-multiprocessing-pool-worker-process
+# 2. https://stackoverflow.com/questions/53841599/python-multiprocessing-copy-on-write-behaving-differently-between-osx-and-ubuntu
+# 3. https://stackoverflow.com/questions/40221868/multiprocessing-global-variable-memory-copying
 
-def load_dataset_with_config(conf: Dict[str, Any]):
+lsh: MinHashLSH | None = None
+dup_ids: Set[int] | None = None
+
+
+def load_dataset_with_config(conf: Dict[str, Any]) -> Dataset:
+    """
+    Load a dataset based on the configuration. Be careful about changing this function,
+    as it is used for caching the intermediate results.
+
+    Parameters
+    ----------
+    conf : Dict[str, Any]
+        The configuration. Mainly, there are three ways to load a dataset:
+        1. Directly from th ehub
+        2. From a local git repository
+        3. From a local dataset directory that was saved by `save_to_disk` before
+    
+    Returns
+    -------
+    Dataset
+        The loaded dataset.
+    """
 
     # Load from hub
     if not conf["lfs"]:
@@ -138,7 +169,11 @@ def query_func(idx: int, signature: np.ndarray, *, index: MinHashLSH) -> Dict[st
     }
 
 
-def find_duplicate_communities(records: Iterable | Dataset, community_detection: bool = False) -> Set[int]:
+def find_duplicate_communities(
+    records: Iterable | Dataset, 
+    community_detection: bool,
+    output: str
+) -> Set[int]:
     """
     Find the duplicate communities from the queried dataset.
 
@@ -148,36 +183,38 @@ def find_duplicate_communities(records: Iterable | Dataset, community_detection:
         The dataset that contains both `__id__` and `__neighbors__`.
     community_detection : bool
         Whether to use community detection to find the duplicate communities, or to use the connected components.
+    output : str
+        The output file to save the duplicate communities.
 
     Returns
     -------
     Set[int]
         The set of duplicate ids that should be removed, leaving only one id in each community.
     """
-    # Remove all but one of the nodes in each connected component.
-    # This might cause false negatives, but it is much faster than finding communities.
-    assert community_detection is False, "Community detection is not implemented due to speed constraint."
     g = nk.graph.Graph()
     for record in tqdm(records, desc="Constructing graph..."):  # This creats a bottleneck since it is not parallelized.
         for y in record["__neighbors__"]:
             g.addEdge(record["__id__"], y, addMissing=True)
 
-    # connected components
-    cc = nk.components.ConnectedComponents(g).run().getComponents()  # O(n)
     to_remove: Set[int] = set()
-    for ids in tqdm(cc, desc="Iterating over clusters..."):
-        to_remove.update(sorted(ids)[1:])
+    if not community_detection:
+        cc = nk.components.ConnectedComponents(g)
+        cc.run()
+        partition = cc.getPartition()
+        for component in tqdm(cc.getComponents(), desc="Iterating over components..."):
+            to_remove.update(sorted(component)[1:])
+    else:
+        partition = nk.community.detectCommunities(g)
+        for i in tqdm(partition.getSubsetIds(), desc="Iterating over communities..."):
+            ids = partition.getMembers(i)
+            to_remove.update(sorted(ids)[1:])
+    nk.community.writeCommunities(partition, str(output))
+
 
     return to_remove
 
 
 if __name__ == "__main__":
-
-    # Since multiprocessing with fork is copy-on-write, we need to use global variables to share objects across processes.
-    # This might not be the case on some systems where objects are pickled and sent to the child processes.
-    # One way to check is to print the id of the object in the child processes and see if they are the same.
-    lsh = None
-    dup_ids = None
 
     def run(
         dataset: str = typer.Option("codeparrot/codeparrot-clean-valid", help="The dataset to use"),
@@ -197,6 +234,7 @@ if __name__ == "__main__":
         output_duplicate_ids: str = typer.Option(None, help="Store computed duplicate ids"),
         output: str = typer.Option(None, help="Store the deduplicated dataset"),
         lfs: bool = typer.Option(False, help="Use LFS files"),
+        community_detection: bool = typer.Option(False, "--community-detection", "-c", help="Use community detection"),
     ):
         global lsh
         global dup_ids
@@ -210,6 +248,7 @@ if __name__ == "__main__":
         output_concat = OUTPUT_BASE / "concat"
         output_index = OUTPUT_BASE / "index.pkl"
         output_unique_paths = OUTPUT_BASE / "unique_paths.json"
+        output_community = OUTPUT_BASE / "community.partition"
 
         logger.info(f"Output base: {OUTPUT_BASE}")
         logger.info(f"Concat output: {output_concat}")
@@ -217,6 +256,7 @@ if __name__ == "__main__":
         logger.info(f"Neighbor dataset output: {output_neighbor_dataset}")
         logger.info(f"Duplicate ids output: {output_duplicate_ids}")
         logger.info(f"Unique paths output: {output_unique_paths}")
+        logger.info(f"Community output: {output_community}")
         logger.info(f"Output: {output}")
 
         conf = {
@@ -237,7 +277,10 @@ if __name__ == "__main__":
             "output_duplicate_ids": output_duplicate_ids,
             "output": output,
             "lfs": lfs,
+            "index_output": output_index,
             "concat_output": output_concat,
+            "community_detection": community_detection,
+            "community_output": output_community,
         }
 
         lsh = MinHashLSH(
@@ -307,7 +350,7 @@ if __name__ == "__main__":
             queried = queried.filter(
                 lambda x: len(x["__neighbors__"]) > 0, num_proc=os.cpu_count(), desc="Finding duplicates..."
             )
-            dup_ids = find_duplicate_communities(queried)
+            dup_ids = find_duplicate_communities(queried, conf["community_detection"], conf["community_output"])
 
             with open(output_duplicate_ids, "w") as f:
                 json.dump(list(map(str, dup_ids)), f)
@@ -335,6 +378,7 @@ if __name__ == "__main__":
                 lambda x: {"url": x["repository_name"] + "/" + x["path"]},
                 num_proc=os.cpu_count(),
                 remove_columns=final_data.column_names,
+                desc="Saving unique paths...",
             )
             json.dump(list(set(temp["url"])), f)
 
