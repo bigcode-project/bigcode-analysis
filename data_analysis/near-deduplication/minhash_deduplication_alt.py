@@ -12,12 +12,12 @@ import logging
 import multiprocessing
 import os
 import pickle
+import random
 import re
 import time
 from pathlib import Path
-from typing import Any, Dict, Iterable, Set
+from typing import Any, Dict, Iterable, List, Set
 
-# os.environ['KMP_DUPLICATE_LIB_OK']='True'
 multiprocessing.set_start_method("fork", force=True)
 
 import networkit as nk
@@ -29,6 +29,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 from tqdm import tqdm
 
+random.seed(42)
 MINHASH_SEED = 42
 NON_ALPHA = re.compile("[^A-Za-z_0-9]")
 console = Console()
@@ -36,13 +37,13 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(RichHandler(rich_tracebacks=True))
 
-# With multiprocessing and copy-on-write fork (Linux and macOS), 
+# With multiprocessing and copy-on-write fork (Linux and macOS),
 # we can use global variables to share objects across processes.
-# This might not be the case on some systems where objects are 
-# pickled and sent to the child processes. It might also not be reflected 
-# when you use top command to check the memory usage. One way to check is to 
+# This might not be the case on some systems where objects are
+# pickled and sent to the child processes. It might also not be reflected
+# when you use top command to check the memory usage. One way to check is to
 # print the id of the object in the child processes and see if they are the same.
-# References: 
+# References:
 # 1. https://stackoverflow.com/questions/38084401/leveraging-copy-on-write-to-copy-data-to-multiprocessing-pool-worker-process
 # 2. https://stackoverflow.com/questions/53841599/python-multiprocessing-copy-on-write-behaving-differently-between-osx-and-ubuntu
 # 3. https://stackoverflow.com/questions/40221868/multiprocessing-global-variable-memory-copying
@@ -63,7 +64,7 @@ def load_dataset_with_config(conf: Dict[str, Any]) -> Dataset:
         1. Directly from th ehub
         2. From a local git repository
         3. From a local dataset directory that was saved by `save_to_disk` before
-    
+
     Returns
     -------
     Dataset
@@ -108,7 +109,8 @@ def load_dataset_with_config(conf: Dict[str, Any]) -> Dataset:
 
 def embed_func(idx: int, content: str, *, num_perm: int) -> Dict[str, Any]:
     """
-    Embed the content of a record into a MinHash object.
+    Embed the content of a record into a MinHash object. This function should be
+    used with multiprocessing and it scales well with the number of cores.
 
     Parameters
     ----------
@@ -143,7 +145,8 @@ def embed_func(idx: int, content: str, *, num_perm: int) -> Dict[str, Any]:
 
 def query_func(idx: int, signature: np.ndarray, *, index: MinHashLSH) -> Dict[str, Any]:
     """
-    Query the MinHashLSH index for the record.
+    Query the MinHashLSH index for the record. This function can be used with multiprocessing
+    as long as the index is shared across processes.
 
     Parameters
     ----------
@@ -169,10 +172,70 @@ def query_func(idx: int, signature: np.ndarray, *, index: MinHashLSH) -> Dict[st
     }
 
 
+def calculate_average_false_positive_rate(
+    clusters: List[List[int]],
+    reference_records: Iterable | Dataset,
+    threshold: float,
+    column: str,
+):
+    """
+    Calculate the average false positive rate within each cluster. The false positives are defined as
+    number of examples that have a maximum jaccard similarity with any example in the cluster that is
+    less than the threshold. The false positive rate is defined as the number of false positives divided
+    by the number of examples in the cluster. The average false positive rate is defined as the average
+    of the false positive rate across all clusters given.
+
+    Parameters
+    ----------
+    clusters : List[List[int]]
+        The clusters of duplicate records.
+    reference_records : Iterable | Dataset
+        The reference records. It can be an iterable or a Dataset.
+    threshold : float
+        The threshold to use for calculating the false positive rate.
+    column : str
+        The column to use for calculating the false positive rate.
+    """
+    sample_size: int = 10
+    cluster_false_positive_rates: List[float] = []
+    deltas: List[float] = []
+
+    for cluster in tqdm(clusters, desc="Calculating sampling false positive rate..."):
+        num_false_positives = 0
+        ids = sorted(cluster)
+        for i, x in enumerate(ids):
+            is_false_positive = True
+            max_similarity = -float("inf")
+            for j, y in enumerate(ids):
+                if i == j:
+                    continue
+                # TODO This can be redundant but we only calculate this for a small sample
+                similarity = jaccard_similarity(reference_records[x][column], reference_records[y][column])
+                max_similarity = max(max_similarity, similarity)
+                if max_similarity >= threshold:
+                    is_false_positive = False
+                    break
+            if is_false_positive:
+                num_false_positives += 1
+                deltas.append(threshold - max_similarity)
+        cluster_false_positive_rates.append(num_false_positives / len(ids))
+        sample_size -= 1
+
+    logger.info(
+        f"Average false positive rate from {len(clusters)} clusters: {np.mean(cluster_false_positive_rates):.2f}"
+    )
+    logger.info(f"Average similarity delta from threshold: - {np.mean(deltas):.2f}")
+
+
 def find_duplicate_communities(
-    records: Iterable | Dataset, 
+    records: Iterable | Dataset,
     community_detection: bool,
-    output: str
+    output: str,
+    report_false_positive_rate: bool = False,
+    reference_records: Iterable | Dataset | None = None,
+    threashold: float = 0.85,
+    column: str = "content",
+    sample_size: int = 10,
 ) -> Set[int]:
     """
     Find the duplicate communities from the queried dataset.
@@ -191,25 +254,88 @@ def find_duplicate_communities(
     Set[int]
         The set of duplicate ids that should be removed, leaving only one id in each community.
     """
+    SAMPLE_MIN_SIZE = 10
     g = nk.graph.Graph()
     for record in tqdm(records, desc="Constructing graph..."):  # This creats a bottleneck since it is not parallelized.
         for y in record["__neighbors__"]:
             g.addEdge(record["__id__"], y, addMissing=True)
 
     to_remove: Set[int] = set()
+    samples: List[List[int]] = []
     if not community_detection:
         cc = nk.components.ConnectedComponents(g)
         cc.run()
         partition = cc.getPartition()
-        for component in tqdm(cc.getComponents(), desc="Iterating over components..."):
-            to_remove.update(sorted(component)[1:])
+        components = cc.getComponents()
+        random.shuffle(components)
+        for component in tqdm(components, desc="Iterating over components..."):
+            component = sorted(component)
+            to_remove.update(component[1:])
+            if sample_size > 0 and len(component) > SAMPLE_MIN_SIZE:
+                samples.append(component[:])
+                sample_size -= 1
     else:
         partition = nk.community.detectCommunities(g)
-        for i in tqdm(partition.getSubsetIds(), desc="Iterating over communities..."):
+        communities = partition.getSubsetIds()
+        random.shuffle(communities)
+        for i in tqdm(communities, desc="Iterating over communities..."):
             ids = partition.getMembers(i)
             to_remove.update(sorted(ids)[1:])
-    nk.community.writeCommunities(partition, str(output))
+            if sample_size > 0 and len(ids) > SAMPLE_MIN_SIZE:
+                samples.append(ids[:])
+                sample_size -= 1
 
+    nk.community.writeCommunities(partition, str(output))
+    if report_false_positive_rate:
+        calculate_average_false_positive_rate(
+            samples,
+            reference_records,
+            threashold,
+            column,
+        )
+
+    return to_remove
+
+
+def jaccard_similarity(code1: str, code2: str) -> float:
+    """Compute the Jaccard similarity of two code snippets."""
+    tokens1 = set([t for t in NON_ALPHA.split(code1) if t.strip()])
+    tokens2 = set([t for t in NON_ALPHA.split(code2) if t.strip()])
+    return len(tokens1 & tokens2) / max(1, len(tokens1 | tokens2))
+
+
+def find_duplicate_non_extremes(
+    records: Iterable | Dataset,
+    reference_records: Iterable | Dataset,
+    column: str,
+    threshold: float,
+) -> None:
+    """
+    This is a approximation of what has been used in other script.
+
+    This is slow in this implementation as parallelization requires a global variable
+    to hold the dataset to query, which is not implemented in this script.
+    """
+    g = nk.graph.Graph()
+    for record in tqdm(records, desc="Constructing graph..."):
+        for y in record["__neighbors__"]:
+            g.addEdge(record["__id__"], y, addMissing=True)
+
+    to_remove: Set[int] = set()
+    cc = nk.components.ConnectedComponents(g)
+    cc.run()
+    for component in tqdm(sorted(cc.getComponents(), key=len, reverse=True), desc="Iterating over components..."):
+        extremes: Set[int] = set()
+        # greedy clustering within each component
+        for element1 in tqdm(component, leave=False):
+            code1 = reference_records[element1][column]
+            for element2 in extremes:
+                code2 = reference_records[element2][column]
+                if jaccard_similarity(code1, code2) >= threshold:
+                    break
+            else:
+                extremes.add(element1)
+        to_remove.update([i for i in component if i not in extremes])
 
     return to_remove
 
@@ -235,6 +361,12 @@ if __name__ == "__main__":
         output: str = typer.Option(None, help="Store the deduplicated dataset"),
         lfs: bool = typer.Option(False, help="Use LFS files"),
         community_detection: bool = typer.Option(False, "--community-detection", "-c", help="Use community detection"),
+        extremes: bool = typer.Option(
+            False, "--extremes", "-e", help="Use `extremes` instead of community nor components"
+        ),
+        false_positive_rate: bool = typer.Option(
+            False, "--false-positive-rate", "-f", help="Report false positive rate"
+        ),
     ):
         global lsh
         global dup_ids
@@ -281,6 +413,8 @@ if __name__ == "__main__":
             "concat_output": output_concat,
             "community_detection": community_detection,
             "community_output": output_community,
+            "extremes": extremes,
+            "false_positive_rate": false_positive_rate,
         }
 
         lsh = MinHashLSH(
@@ -303,9 +437,6 @@ if __name__ == "__main__":
                 num_proc=os.cpu_count(),
                 desc=f"Fingerprinting...",
             )
-
-            del ds
-            gc.collect()
             # endregion
 
             # region: index
@@ -326,6 +457,10 @@ if __name__ == "__main__":
                 pickle.dump(lsh, open(output_index, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
             # endregion
 
+            # This prevents the index's reference count being modified so it can be shared across processes
+            gc.disable()
+            gc.freeze()
+
             # region: query
             queried = embedded.map(
                 lambda x, y: query_func(x, y, index=lsh),  # Do not use fn_kwargs here, it will be pickled instead.
@@ -336,8 +471,10 @@ if __name__ == "__main__":
                 desc=f"Querying...",
             )
             # endregion
-
             queried.save_to_disk(output_neighbor_dataset)
+
+            gc.enable()
+            gc.unfreeze()
         elif not input_duplicate_ids:
             queried = load_from_disk(input_neighbor_dataset)
         else:
@@ -350,8 +487,18 @@ if __name__ == "__main__":
             queried = queried.filter(
                 lambda x: len(x["__neighbors__"]) > 0, num_proc=os.cpu_count(), desc="Finding duplicates..."
             )
-            dup_ids = find_duplicate_communities(queried, conf["community_detection"], conf["community_output"])
-
+            if not extremes:
+                dup_ids = find_duplicate_communities(
+                    queried,
+                    conf["community_detection"],
+                    conf["community_output"],
+                    conf["false_positive_rate"],
+                    ds,
+                    conf["threshold"],
+                    conf["column"],
+                )
+            else:
+                dup_ids = find_duplicate_non_extremes(queried, ds, conf["column"], conf["threshold"])
             with open(output_duplicate_ids, "w") as f:
                 json.dump(list(map(str, dup_ids)), f)
         else:
@@ -365,7 +512,7 @@ if __name__ == "__main__":
 
         # region: deduplicate
         # Reload the original dataset
-        ds = load_dataset_with_config(conf)
+        # ds = load_dataset_with_config(conf)
         final_data = ds.filter(
             lambda _, idx: idx not in dup_ids,
             with_indices=True,
@@ -373,14 +520,15 @@ if __name__ == "__main__":
             desc="Filtering duplicates...",
         )
 
-        with open(output_unique_paths, "w") as f:
-            temp = final_data.map(
-                lambda x: {"url": x["repository_name"] + "/" + x["path"]},
-                num_proc=os.cpu_count(),
-                remove_columns=final_data.column_names,
-                desc="Saving unique paths...",
-            )
-            json.dump(list(set(temp["url"])), f)
+        if "repository_name" in final_data.features and "path" in final_data.features:
+            with open(output_unique_paths, "w") as f:
+                temp = final_data.map(
+                    lambda x: {"url": x["repository_name"] + "/" + x["path"]},
+                    num_proc=os.cpu_count(),
+                    remove_columns=final_data.column_names,
+                    desc="Saving unique paths...",
+                )
+                json.dump(list(set(temp["url"])), f)
 
         final_data.save_to_disk(output)
         # endregion
