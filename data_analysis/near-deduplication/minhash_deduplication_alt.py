@@ -47,6 +47,7 @@ logger.addHandler(RichHandler(rich_tracebacks=True))
 # 1. https://stackoverflow.com/questions/38084401/leveraging-copy-on-write-to-copy-data-to-multiprocessing-pool-worker-process
 # 2. https://stackoverflow.com/questions/53841599/python-multiprocessing-copy-on-write-behaving-differently-between-osx-and-ubuntu
 # 3. https://stackoverflow.com/questions/40221868/multiprocessing-global-variable-memory-copying
+# 4. https://docs.python.org/3/library/gc.html#gc.freeze
 
 lsh: MinHashLSH | None = None
 dup_ids: Set[int] | None = None
@@ -130,7 +131,7 @@ def embed_func(idx: int, content: str, *, num_perm: int) -> Dict[str, Any]:
 
     Examples
     --------
-    >>> result = embed_func(0, "Hello world!", num_perm=128, seed=42)
+    >>> result = embed_func(0, "Hello world!", num_perm=128)
     >>> result["__id__"]
     0
     >>> result["__signature__"].shape
@@ -298,7 +299,28 @@ def find_duplicate_communities(
 
 
 def jaccard_similarity(code1: str, code2: str) -> float:
-    """Compute the Jaccard similarity of two code snippets."""
+    """
+    Calculate the jaccard similarity between two code snippets.
+
+    Parameters
+    ----------
+    code1 : str
+        The first code snippet.
+    code2 : str
+        The second code snippet.
+    
+    Returns
+    -------
+    float
+        The jaccard similarity between the two code snippets.
+
+    Examples
+    --------
+    >>> jaccard_similarity("a = 1", "a = 2")
+    0.3333333333333333
+    >>> jaccard_similarity("a = 1", "a = 1")
+    1.0
+    """
     tokens1 = set([t for t in NON_ALPHA.split(code1) if t.strip()])
     tokens2 = set([t for t in NON_ALPHA.split(code2) if t.strip()])
     return len(tokens1 & tokens2) / max(1, len(tokens1 | tokens2))
@@ -458,8 +480,14 @@ if __name__ == "__main__":
             # endregion
 
             # This prevents the index's reference count being modified so it can be shared across processes
+            # It will take some time as everything will be copied into a permanent memory space
             gc.disable()
             gc.freeze()
+
+            # Sanity Check for copy-on-write fork
+            # This is only a simple check. Python makes no guarantees about the id function and phsyical memory address.
+            temp = embedded.select(range(os.cpu_count())).map(lambda _: {"index_address": id(lsh)}, num_proc=os.cpu_count(), remove_columns=embedded.column_names)
+            assert len(set(temp["index_address"])) == 1, "Index is not shared across processes"
 
             # region: query
             queried = embedded.map(
