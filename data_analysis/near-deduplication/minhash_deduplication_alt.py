@@ -85,6 +85,7 @@ def load_dataset_with_config(conf: Dict[str, Any]) -> Dataset:
     # Or load from git lfs files
     elif not os.path.exists(conf["concat_output"]):
         datasets = []
+        # In practice, it might stuck here, you can hit Ctrl+C and run it again.
         for file in tqdm(sorted(glob.glob(conf["data_dir"] + "/*.jsonl")), desc="Loading datasets..."):
             datasets.append(load_dataset("json", data_files=file, split=conf["split"], cache_dir=conf["cache_dir"]))
         ds = concatenate_datasets(datasets)
@@ -95,6 +96,12 @@ def load_dataset_with_config(conf: Dict[str, Any]) -> Dataset:
         ds = load_from_disk(conf["concat_output"])
 
     # Assign unique index to each record
+    # A temporary filtering is used here
+    ds = ds.filter(
+        lambda x: len({t for t in NON_ALPHA.split(x[conf["column"]]) if t}) >= conf["min_token_length"],
+        num_proc=os.cpu_count(),
+        desc="Filtering records...",
+    )
     ds = ds.map(
         lambda _, idx: {"__id__": idx},
         with_indices=True,
@@ -389,6 +396,7 @@ if __name__ == "__main__":
         false_positive_rate: bool = typer.Option(
             False, "--false-positive-rate", "-f", help="Report false positive rate"
         ),
+        min_token_length: int = typer.Option(10, help="Minimum token length"),
     ):
         global lsh
         global dup_ids
@@ -437,6 +445,7 @@ if __name__ == "__main__":
             "community_output": output_community,
             "extremes": extremes,
             "false_positive_rate": false_positive_rate,
+            "min_token_length": min_token_length,
         }
 
         lsh = MinHashLSH(
