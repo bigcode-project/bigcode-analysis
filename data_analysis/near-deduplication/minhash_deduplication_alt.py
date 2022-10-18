@@ -96,12 +96,13 @@ def load_dataset_with_config(conf: Dict[str, Any]) -> Dataset:
         ds = load_from_disk(conf["concat_output"])
 
     # Assign unique index to each record
-    # A temporary filtering is used here
-    ds = ds.filter(
-        lambda x: len({t for t in NON_ALPHA.split(x[conf["column"]]) if t}) >= conf["min_token_length"],
-        num_proc=os.cpu_count(),
-        desc="Filtering records...",
-    )
+    # A token length filtering was used in the Python implementation
+    # but it is not adopted to other languages for some reason.
+    # ds = ds.filter(
+    #     lambda x: len({t for t in NON_ALPHA.split(x[conf["column"]]) if t}) >= conf["min_token_length"],
+    #     num_proc=os.cpu_count(),
+    #     desc="Filtering records...",
+    # )
     ds = ds.map(
         lambda _, idx: {"__id__": idx},
         with_indices=True,
@@ -262,7 +263,7 @@ def find_duplicate_communities(
     Set[int]
         The set of duplicate ids that should be removed, leaving only one id in each community.
     """
-    SAMPLE_MIN_SIZE = 10
+    SAMPLE_MIN_SIZE = 1000
     g = nk.graph.Graph()
     for record in tqdm(records, desc="Constructing graph..."):  # This creats a bottleneck since it is not parallelized.
         for y in record["__neighbors__"]:
@@ -315,7 +316,7 @@ def jaccard_similarity(code1: str, code2: str) -> float:
         The first code snippet.
     code2 : str
         The second code snippet.
-    
+
     Returns
     -------
     float
@@ -495,12 +496,15 @@ if __name__ == "__main__":
 
             # Sanity Check for copy-on-write fork
             # This is only a simple check. Python makes no guarantees about the id function and phsyical memory address.
-            temp = embedded.select(range(os.cpu_count())).map(lambda _: {"index_address": id(lsh)}, num_proc=os.cpu_count(), remove_columns=embedded.column_names)
+            temp = embedded.select(range(os.cpu_count())).map(
+                lambda _: {"index_address": id(lsh)}, num_proc=os.cpu_count(), remove_columns=embedded.column_names
+            )
             assert len(set(temp["index_address"])) == 1, "Index is not shared across processes"
 
             # region: query
+            # Do not use fn_kwargs here, it will be pickled instead.
             queried = embedded.map(
-                lambda x, y: query_func(x, y, index=lsh),  # Do not use fn_kwargs here, it will be pickled instead.
+                lambda x, y: query_func(x, y, index=lsh),
                 num_proc=os.cpu_count(),
                 new_fingerprint=hashlib.md5(pickle.dumps(conf)).hexdigest(),
                 input_columns=["__id__", "__signature__"],
@@ -551,8 +555,8 @@ if __name__ == "__main__":
         # Reload the original dataset
         # ds = load_dataset_with_config(conf)
         final_data = ds.filter(
-            lambda _, idx: idx not in dup_ids,
-            with_indices=True,
+            lambda idx: idx not in dup_ids,
+            input_columns=["__id__"],
             num_proc=os.cpu_count(),
             desc="Filtering duplicates...",
         )
