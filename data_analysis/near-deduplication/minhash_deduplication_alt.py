@@ -205,7 +205,6 @@ def calculate_average_false_positive_rate(
     column : str
         The column to use for calculating the false positive rate.
     """
-    sample_size: int = 10
     cluster_false_positive_rates: List[float] = []
     deltas: List[float] = []
 
@@ -228,7 +227,6 @@ def calculate_average_false_positive_rate(
                 num_false_positives += 1
                 deltas.append(threshold - max_similarity)
         cluster_false_positive_rates.append(num_false_positives / len(ids))
-        sample_size -= 1
 
     logger.info(
         f"Average false positive rate from {len(clusters)} clusters: {np.mean(cluster_false_positive_rates):.2f}"
@@ -244,7 +242,8 @@ def find_duplicate_communities(
     reference_records: Iterable | Dataset | None = None,
     threashold: float = 0.85,
     column: str = "content",
-    sample_size: int = 10,
+    input_graph: str | None = None,
+    output_graph: str | None = None,
 ) -> Set[int]:
     """
     Find the duplicate communities from the queried dataset.
@@ -257,17 +256,53 @@ def find_duplicate_communities(
         Whether to use community detection to find the duplicate communities, or to use the connected components.
     output : str
         The output file to save the duplicate communities.
+    report_false_positive_rate : bool
+        Whether to report the false positive rate.
+    reference_records : Iterable | Dataset | None
+        The reference records. It can be an iterable or a Dataset. It is only used when `report_false_positive_rate` is True.
+    threashold : float
+        The threshold to use for calculating the false positive rate. It is only used when `report_false_positive_rate` is True.
+    column : str
+        The column to use for calculating the false positive rate. It is only used when `report_false_positive_rate` is True.
 
     Returns
     -------
     Set[int]
         The set of duplicate ids that should be removed, leaving only one id in each community.
     """
-    SAMPLE_MIN_SIZE = 1000
-    g = nk.graph.Graph()
-    for record in tqdm(records, desc="Constructing graph..."):  # This creats a bottleneck since it is not parallelized.
-        for y in record["__neighbors__"]:
-            g.addEdge(record["__id__"], y, addMissing=True)
+    SAMPLE_MIN_SIZE = 10
+    SAMPLE_MAX_SIZE = 100
+    SAMPLE_SIZE = 10
+    if input_graph is not None:
+        g = nk.readGraph(str(input_graph), nk.Format.NetworkitBinary)
+    else:
+        g = nk.graph.Graph()
+        for record in tqdm(records, desc="Constructing graph..."):
+            for y in record["__neighbors__"]:
+                g.addEdge(record["__id__"], y, addMissing=True)
+
+        # Merging subgraphs takes roughly the same time as constructing the graph from scratch
+        # def create_graph(idx, neighbors):
+        #     g = nk.graph.Graph()
+        #     for i, y in zip(idx, neighbors):
+        #         for neighbor in y:
+        #             g.addEdge(i, neighbor, addMissing=True)
+        #     return {'__graph__': [pickle.dumps(g)]}
+
+        # graphs = records.map(
+        #     create_graph,
+        #     input_columns=["__id__", "__neighbors__"],
+        #     remove_columns=["__id__", "__neighbors__"],
+        #     batched=True,
+        #     batch_size=100_000,
+        #     num_proc=os.cpu_count(),
+        #     desc="Constructing graph...",
+        # )
+        # g = nk.graph.Graph()
+        # for graph in tqdm(graphs, desc="Merging graphs..."):
+        #     nk.graphtools.merge(g, pickle.loads(graph["__graph__"]))
+        if output_graph is not None:
+            nk.writeGraph(g, str(output_graph), nk.Format.NetworkitBinary)
 
     to_remove: Set[int] = set()
     samples: List[List[int]] = []
@@ -275,24 +310,23 @@ def find_duplicate_communities(
         cc = nk.components.ConnectedComponents(g)
         cc.run()
         partition = cc.getPartition()
-        components = cc.getComponents()
+        components = list(cc.getComponents())
         random.shuffle(components)
         for component in tqdm(components, desc="Iterating over components..."):
             component = sorted(component)
             to_remove.update(component[1:])
-            if sample_size > 0 and len(component) > SAMPLE_MIN_SIZE:
+            if len(samples) < SAMPLE_SIZE and SAMPLE_MAX_SIZE > len(component) >= SAMPLE_MIN_SIZE:
                 samples.append(component[:])
-                sample_size -= 1
     else:
         partition = nk.community.detectCommunities(g)
-        communities = partition.getSubsetIds()
+        communities = list(partition.getSubsetIds())
         random.shuffle(communities)
+        # This can be slow if there are many communities
         for i in tqdm(communities, desc="Iterating over communities..."):
             ids = partition.getMembers(i)
             to_remove.update(sorted(ids)[1:])
-            if sample_size > 0 and len(ids) > SAMPLE_MIN_SIZE:
+            if len(samples) < SAMPLE_SIZE and SAMPLE_MAX_SIZE > len(ids) >= SAMPLE_MIN_SIZE:
                 samples.append(ids[:])
-                sample_size -= 1
 
     nk.community.writeCommunities(partition, str(output))
     if report_false_positive_rate:
@@ -386,6 +420,8 @@ if __name__ == "__main__":
         sample_size: int = typer.Option(-1, help="Sample size"),
         input_neighbor_dataset: str = typer.Option(None, help="Resume from a queried dataset"),
         output_neighbor_dataset: str = typer.Option(None, help="Store a queried dataset"),
+        input_graph: str = typer.Option(None, help="Resume from a graph"),
+        output_graph: str = typer.Option(None, help="Store a graph"),
         input_duplicate_ids: str = typer.Option(None, help="Resume from computed duplicate ids"),
         output_duplicate_ids: str = typer.Option(None, help="Store computed duplicate ids"),
         output: str = typer.Option(None, help="Store the deduplicated dataset"),
@@ -407,6 +443,7 @@ if __name__ == "__main__":
 
         output_neighbor_dataset = output_neighbor_dataset or (OUTPUT_BASE / "neighbors")
         output_duplicate_ids = output_duplicate_ids or (OUTPUT_BASE / "duplicate_ids.json")
+        output_graph = output_graph or (OUTPUT_BASE / "graph.networkit")
         output = output or (OUTPUT_BASE / "deduplicated")
         output_concat = OUTPUT_BASE / "concat"
         output_index = OUTPUT_BASE / "index.pkl"
@@ -419,6 +456,7 @@ if __name__ == "__main__":
         logger.info(f"Neighbor dataset output: {output_neighbor_dataset}")
         logger.info(f"Duplicate ids output: {output_duplicate_ids}")
         logger.info(f"Unique paths output: {output_unique_paths}")
+        logger.info(f"Graph output: {output_graph}")
         logger.info(f"Community output: {output_community}")
         logger.info(f"Output: {output}")
 
@@ -436,6 +474,8 @@ if __name__ == "__main__":
             "sample_size": sample_size,
             "input_neighbor_dataset": input_neighbor_dataset,
             "input_neighbor_dataset": input_neighbor_dataset,
+            "input_graph": input_graph,
+            "output_graph": output_graph,
             "input_duplicate_ids": input_duplicate_ids,
             "output_duplicate_ids": output_duplicate_ids,
             "output": output,
@@ -537,6 +577,8 @@ if __name__ == "__main__":
                     ds,
                     conf["threshold"],
                     conf["column"],
+                    conf["input_graph"],
+                    conf["output_graph"],
                 )
             else:
                 dup_ids = find_duplicate_non_extremes(queried, ds, conf["column"], conf["threshold"])
