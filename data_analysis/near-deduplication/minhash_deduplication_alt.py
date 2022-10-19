@@ -11,15 +11,18 @@ import json
 import logging
 import multiprocessing
 import os
-import pickle
+
+# import pickle
 import random
 import re
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Set
 
 multiprocessing.set_start_method("fork", force=True)
 
+import dill as pickle
 import networkit as nk
 import numpy as np
 import typer
@@ -36,6 +39,7 @@ console = Console()
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(RichHandler(rich_tracebacks=True))
+logger.propagate = False
 
 # With multiprocessing and copy-on-write fork (Linux and macOS),
 # we can use global variables to share objects across processes.
@@ -168,6 +172,21 @@ def query_func(idx: int, signature: np.ndarray, *, index: MinHashLSH) -> Dict[st
     -------
     Dict[str, Any]
         The query result.
+
+    Examples
+    --------
+    >>> data = ["Hello world!", "Hello world"]
+    >>> signatures = [embed_func(i, content, num_perm=128) for i, content in enumerate(data)]
+    >>> index = MinHashLSH(threshold=0.5, num_perm=128)
+    >>> for signature in signatures:
+    ...     index.insert(
+    ...         signature["__id__"],
+    ...         MinHash(num_perm=128, hashvalues=signature["__signature__"], seed=MINHASH_SEED)
+    ...     )
+    >>> query_func(0, signatures[0]["__signature__"], index=index)
+    {'__neighbors__': [1], '__id__': 0}
+    >>> query_func(1, signatures[1]["__signature__"], index=index)
+    {'__neighbors__': [0], '__id__': 1}
     """
     return {
         "__neighbors__": [
@@ -231,7 +250,11 @@ def calculate_average_false_positive_rate(
     logger.info(
         f"Average false positive rate from {len(clusters)} clusters: {np.mean(cluster_false_positive_rates):.2f}"
     )
-    logger.info(f"Average similarity delta from threshold: - {np.mean(deltas):.2f}")
+    logger.info(f"Similarity delta stats from threshold:")
+    logger.info(f"Max: {np.max(deltas):.2f}")
+    logger.info(f"Min: {np.min(deltas):.2f}")
+    logger.info(f"Mean: {np.mean(deltas):.2f}")
+    logger.info(f"Std: {np.std(deltas):.2f}")
 
 
 def find_duplicate_communities(
