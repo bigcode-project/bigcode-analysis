@@ -11,11 +11,8 @@ import json
 import logging
 import multiprocessing
 import os
-
-# import pickle
 import random
 import re
-import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Set
@@ -251,10 +248,10 @@ def calculate_average_false_positive_rate(
         f"Average false positive rate from {len(clusters)} clusters: {np.mean(cluster_false_positive_rates):.2f}"
     )
     logger.info(f"Similarity delta stats from threshold:")
-    logger.info(f"Max: {np.max(deltas):.2f}")
-    logger.info(f"Min: {np.min(deltas):.2f}")
-    logger.info(f"Mean: {np.mean(deltas):.2f}")
-    logger.info(f"Std: {np.std(deltas):.2f}")
+    logger.info(f"-  Max : {np.max(deltas):0.2f}")
+    logger.info(f"-  Min : {np.min(deltas):0.2f}")
+    logger.info(f"-  Mean: {np.mean(deltas):0.2f}")
+    logger.info(f"-  Std : {np.std(deltas):0.2f}")
 
 
 def find_duplicate_communities(
@@ -267,6 +264,7 @@ def find_duplicate_communities(
     column: str = "content",
     input_graph: str | None = None,
     output_graph: str | None = None,
+    verbose: bool = False,
 ) -> Set[int]:
     """
     Find the duplicate communities from the queried dataset.
@@ -287,6 +285,12 @@ def find_duplicate_communities(
         The threshold to use for calculating the false positive rate. It is only used when `report_false_positive_rate` is True.
     column : str
         The column to use for calculating the false positive rate. It is only used when `report_false_positive_rate` is True.
+    input_graph : str | None
+        The input graph file to load the graph from.
+    output_graph : str | None
+        The output graph file to save the graph to.
+    verbose : bool
+        Whether to print verbose logs and false positive rate stats.
 
     Returns
     -------
@@ -352,7 +356,7 @@ def find_duplicate_communities(
                 samples.append(ids[:])
 
     nk.community.writeCommunities(partition, str(output))
-    if report_false_positive_rate:
+    if report_false_positive_rate and verbose:
         calculate_average_false_positive_rate(
             samples,
             reference_records,
@@ -473,15 +477,15 @@ if __name__ == "__main__":
         output_unique_paths = OUTPUT_BASE / "unique_paths.json"
         output_community = OUTPUT_BASE / "community.partition"
 
-        logger.info(f"Output base: {OUTPUT_BASE}")
-        logger.info(f"Concat output: {output_concat}")
-        logger.info(f"Index output: {output_index}")
-        logger.info(f"Neighbor dataset output: {output_neighbor_dataset}")
-        logger.info(f"Duplicate ids output: {output_duplicate_ids}")
-        logger.info(f"Unique paths output: {output_unique_paths}")
-        logger.info(f"Graph output: {output_graph}")
-        logger.info(f"Community output: {output_community}")
-        logger.info(f"Output: {output}")
+        logger.info(f"{'Output base':<30}: {OUTPUT_BASE}")
+        logger.info(f"{'Concat output':<30}: {output_concat}")
+        logger.info(f"{'Index output':<30}: {output_index}")
+        logger.info(f"{'Neighbor dataset output':<30}: {output_neighbor_dataset}")
+        logger.info(f"{'Duplicate ids output':<30}: {output_duplicate_ids}")
+        logger.info(f"{'Unique paths output':<30}: {output_unique_paths}")
+        logger.info(f"{'Graph output':<30}: {output_graph}")
+        logger.info(f"{'Community output':<30}: {output_community}")
+        logger.info(f"{'Output':<30}: {output}")
 
         conf = {
             "cache_dir": cache_dir,
@@ -512,18 +516,23 @@ if __name__ == "__main__":
             "min_token_length": min_token_length,
         }
 
+        time_measures = {}
+
         lsh = MinHashLSH(
             threshold=conf["threshold"],
             num_perm=conf["num_perm"],
         )
 
+        time_measures["load_dataset"] = time.time()
         ds = load_dataset_with_config(conf)
+        time_measures["load_dataset"] = time.time() - time_measures["load_dataset"]
         DATA_SIZE = len(ds)
         start_time = time.time()
 
         if not input_neighbor_dataset and not input_duplicate_ids:
 
             # region: embed
+            time_measures["embed"] = time.time()
             embedded = ds.map(
                 function=embed_func,
                 fn_kwargs={"num_perm": conf["num_perm"]},
@@ -532,14 +541,18 @@ if __name__ == "__main__":
                 num_proc=os.cpu_count(),
                 desc=f"Fingerprinting...",
             )
+            time_measures["embed"] = time.time() - time_measures["embed"]
             # endregion
 
             # region: index
             if os.path.exists(output_index):
+                time_measures["load_index"] = time.time()
                 logger.info(f"Loading index from {output_index}")
                 with open(output_index, "rb") as f:
                     lsh = pickle.load(f)
+                time_measures["load_index"] = time.time() - time_measures["load_index"]
             else:
+                time_measures["create_index"] = time.time()
                 with lsh.insertion_session() as session:
                     for data in tqdm(embedded, desc="Indexing signatures..."):
                         if data["__id__"] in lsh:
@@ -549,23 +562,32 @@ if __name__ == "__main__":
                             LeanMinHash(seed=MINHASH_SEED, hashvalues=data["__signature__"]),
                             check_duplication=False,
                         )
+                time_measures["create_index"] = time.time() - time_measures["create_index"]
+                time_measures["save_index"] = time.time()
                 pickle.dump(lsh, open(output_index, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
+                time_measures["save_index"] = time.time() - time_measures["save_index"]
             # endregion
 
             # This prevents the index's reference count being modified so it can be shared across processes
             # It will take some time as everything will be copied into a permanent memory space
+            time_measures["freeze_memory"] = time.time()
             gc.disable()
             gc.freeze()
+            time_measures["freeze_memory"] = time.time() - time_measures["freeze_memory"]
 
             # Sanity Check for copy-on-write fork
             # This is only a simple check. Python makes no guarantees about the id function and phsyical memory address.
-            temp = embedded.select(range(os.cpu_count())).map(
-                lambda _: {"index_address": id(lsh)}, num_proc=os.cpu_count(), remove_columns=embedded.column_names
-            )
-            assert len(set(temp["index_address"])) == 1, "Index is not shared across processes"
+            if verbose:
+                time_measures["check_index"] = time.time()
+                temp = embedded.select(range(os.cpu_count())).map(
+                    lambda _: {"index_address": id(lsh)}, num_proc=os.cpu_count(), remove_columns=embedded.column_names
+                )
+                assert len(set(temp["index_address"])) == 1, "Index is not shared across processes"
+                time_measures["check_index"] = time.time() - time_measures["check_index"]
 
             # region: query
             # Do not use fn_kwargs here, it will be pickled instead.
+            time_measures["query"] = time.time()
             queried = embedded.map(
                 lambda x, y: query_func(x, y, index=lsh),
                 num_proc=os.cpu_count(),
@@ -574,13 +596,21 @@ if __name__ == "__main__":
                 remove_columns=["__signature__"],
                 desc=f"Querying...",
             )
+            time_measures["query"] = time.time() - time_measures["query"]
             # endregion
+            time_measures["save_neighbors"] = time.time()
             queried.save_to_disk(output_neighbor_dataset)
+            time_measures["save_neighbors"] = time.time() - time_measures["save_neighbors"]
 
+            time_measures["unfreeze_memory"] = time.time()
             gc.enable()
             gc.unfreeze()
+            time_measures["unfreeze_memory"] = time.time() - time_measures["unfreeze_memory"]
+
         elif not input_duplicate_ids:
+            time_measures["load_neighbors"] = time.time()
             queried = load_from_disk(input_neighbor_dataset)
+            time_measures["load_neighbors"] = time.time() - time_measures["load_neighbors"]
         else:
             queried = None
 
@@ -588,6 +618,7 @@ if __name__ == "__main__":
         gc.collect()
 
         if not input_duplicate_ids:
+            time_measures["clustering"] = time.time()
             queried = queried.filter(
                 lambda x: len(x["__neighbors__"]) > 0, num_proc=os.cpu_count(), desc="Finding duplicates..."
             )
@@ -605,28 +636,36 @@ if __name__ == "__main__":
                 )
             else:
                 dup_ids = find_duplicate_non_extremes(queried, ds, conf["column"], conf["threshold"])
+            time_measures["clustering"] = time.time() - time_measures["clustering"]
+            time_measures["save_duplicate_ids"] = time.time()
             with open(output_duplicate_ids, "w") as f:
                 json.dump(list(map(str, dup_ids)), f)
+            time_measures["save_duplicate_ids"] = time.time() - time_measures["save_duplicate_ids"]
         else:
+            time_measures["load_duplicate_ids"] = time.time()
             with open(input_duplicate_ids, "r") as f:
                 dup_ids = set((map(int, json.load(f))))
+            time_measures["load_duplicate_ids"] = time.time() - time_measures["load_duplicate_ids"]
 
         del queried
         gc.collect()
 
-        logger.info(f"Processing time taken: {time.time() - start_time:.2f} seconds")
+        time_measures["total_processing_time"] = time.time() - start_time
 
         # region: deduplicate
         # Reload the original dataset
         # ds = load_dataset_with_config(conf)
+        time_measures["deduplicate"] = time.time()
         final_data = ds.filter(
             lambda idx: idx not in dup_ids,
             input_columns=["__id__"],
             num_proc=os.cpu_count(),
             desc="Filtering duplicates...",
         )
+        time_measures["deduplicate"] = time.time() - time_measures["deduplicate"]
 
         if "repository_name" in final_data.features and "path" in final_data.features:
+            time_measures["save_unique_paths"] = time.time()
             with open(output_unique_paths, "w") as f:
                 temp = final_data.map(
                     lambda x: {"url": x["repository_name"] + "/" + x["path"]},
@@ -635,19 +674,24 @@ if __name__ == "__main__":
                     desc="Saving unique paths...",
                 )
                 json.dump(list(set(temp["url"])), f)
+            time_measures["save_unique_paths"] = time.time() - time_measures["save_unique_paths"]
 
+        time_measures["save_deduplicated"] = time.time()
         final_data.save_to_disk(output)
+        time_measures["save_deduplicated"] = time.time() - time_measures["save_deduplicated"]
         # endregion
 
         FINAL_DATA_SIZE = len(final_data)
         DUP_SIZE = DATA_SIZE - FINAL_DATA_SIZE
         LAN = (data_dir or "all").split("/")[-1]
-        logger.info(
-            f"| {LAN} "
-            f"| {DATA_SIZE} "
-            f"| {DUP_SIZE} ({DUP_SIZE / DATA_SIZE * 100:.2f}%) "
-            f"| {time.time() - start_time:.2f} sec |"
-        )
+        for key in time_measures:
+            logger.info(f"{' '.join(key.split('_')).title():<30}: {time_measures[key]:.2f} seconds")
+
+        logger.info(f"{'Language':<30}: {LAN}")
+        logger.info(f"{'Data Number':<30}: {DATA_SIZE}")
+        logger.info(f"{'Duplicate Number':<30}: {DUP_SIZE}")
+        logger.info(f"{'Duplicate Rate':<30}: {DUP_SIZE / DATA_SIZE:.2%}")
+        logger.info(f"{'Total Time':<30}: {time.time() - start_time:.2f} seconds")
         logger.info("🤗 Happy Deduplicating 🤗")
 
     typer.run(run)
