@@ -1,0 +1,1 @@
+In this folder we provide the code to detect data contamination with the problems of [HumanEval](https://huggingface.co/datasets/openai_humaneval) and [MBPP](https://huggingface.co/datasets/mbpp) benchmarks using a near-deduplication approach with MinHash and LSH indexing.
