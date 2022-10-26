@@ -1,13 +1,12 @@
 import time
-from datasets import load_dataset
-from tqdm import tqdm
 import argparse
+from datasets import load_dataset
+import numpy as np
+from tqdm import tqdm
 
 
 def parseArgs():
-    parser = argparse.ArgumentParser(
-        description="Config and test files detection"
-    )
+    parser = argparse.ArgumentParser(description="Config and test files detection")
     parser.add_argument(
         "--dataset_name",
         default="bigcode/python_permissive",
@@ -21,10 +20,10 @@ def parseArgs():
         help="Number f workers for multiprocessing",
     )
     parser.add_argument(
-        "--text_column",
-        default="content",
+        "--split",
+        default="train",
         type=str,
-        help="Text column name",
+        help="Datasset split to process",
     )
     parser.add_argument(
         "--push_to_hub",
@@ -66,12 +65,11 @@ def preprocess(example):
     return results
 
 
-def filter(example, args):
-    """Filter dataset with heuristics. Config, test and has_no_keywords files are removed with a given probability."""
+def filter(example):
+    """Filter files that are config or test files"""
     if example["config_or_test"]:
         return False
-    else:
-        return True
+    return True
 
 
 args = parseArgs()
@@ -79,7 +77,8 @@ args = parseArgs()
 # Load dataset
 t_start = time.time()
 print(f"Loading dataset {args.dataset_name}")
-dataset = load_dataset("bigcode/the-stack", data_files = ["data/python/*"], split="train", use_auth_token=True, chunksize=40<<20)
+dataset = load_dataset(args.dataset_name, split=args.split)
+# dataset = load_dataset("bigcode/the-stack", data_files = ["data/python/*"], split="train", use_auth_token=True, chunksize=40<<20)
 print(f"Time to load dataset: {time.time()-t_start:.2f}")
 
 # Run preprocessing
@@ -90,12 +89,13 @@ print(ds)
 
 t_start = time.time()
 old_size = len(ds)
-ds = ds.filter(filter, fn_kwargs={"args": args})
+ds = ds.filter(filter)
 print(f"Time to filter dataset: {time.time()-t_start:.2f}")
 print(f"\nSize of original dataset: {old_size}")
 print(f"Size of filtered dataset: {len(ds)}")
-print(f"\nPercentage of removed files: {(old_size - len(ds))*100/old_size}")
-print(f"Percentage of left files: {(len(ds))*100/old_size}%")
+print(
+    f"\nPercentage of removed files: {np.round((old_size - len(ds))*100/old_size, 2)}%"
+)
 
 print("\nCounting size in Gb of the new datase")
 new_size, old_size = 0, 0
@@ -105,9 +105,9 @@ for i in tqdm(range(len(ds))):
 for i in tqdm(range(len(dataset))):
     old_size += len(dataset[i]["content"])
 
-print(f"current size in Gb is {new_size/10**9}")
-print(f"old size in Gb is {old_size/10**9}")
-print(f"volume removed: {(new_size-old_size)*100/new_size}%")
+print(f"current size in Gb is {np.round(new_size/10**9), 4}")
+print(f"old size in Gb is {np.round(old_size/10**9, 4)}")
+print(f"volume removed: {np.round((old_size-new_size)*100/new_size, 2)}%")
 
 if args.push_to_hub:
     ds.push_to_hub("no_conf_test_ds")
