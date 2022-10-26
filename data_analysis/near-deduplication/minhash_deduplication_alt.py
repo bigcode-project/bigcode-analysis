@@ -102,13 +102,12 @@ def load_dataset_with_config(conf: Dict[str, Any]) -> Dataset:
         ds = load_from_disk(conf["concat_output"])
 
     # Assign unique index to each record
-    # A token length filtering was used in the Python implementation
-    # but it is not adopted to other languages for some reason.
-    # ds = ds.filter(
-    #     lambda x: len({t for t in NON_ALPHA.split(x[conf["column"]]) if t}) >= conf["min_token_length"],
-    #     num_proc=os.cpu_count(),
-    #     desc="Filtering records...",
-    # )
+    # A token length filtering was used in the Python experiment
+    ds = ds.filter(
+        lambda x: len({t for t in NON_ALPHA.split(x[conf["column"]]) if t}) >= conf["min_token_length"],
+        num_proc=os.cpu_count(),
+        desc="Filtering records...",
+    )
     ds = ds.map(
         lambda _, idx: {"__id__": idx},
         with_indices=True,
