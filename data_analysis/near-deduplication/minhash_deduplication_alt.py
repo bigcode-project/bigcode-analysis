@@ -14,11 +14,14 @@ import os
 import random
 import re
 import time
+import warnings
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Set
 
+warnings.filterwarnings("ignore", category=FutureWarning)
 multiprocessing.set_start_method("fork", force=True)
 
+import datasets
 import dill as pickle
 import networkit as nk
 import numpy as np
@@ -37,6 +40,8 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 logger.addHandler(RichHandler(rich_tracebacks=True))
 logger.propagate = False
+datasets.logging.set_verbosity_error()
+nk.setLogLevel("ERROR")
 
 # With multiprocessing and copy-on-write fork (Linux and macOS),
 # we can use global variables to share objects across processes.
@@ -83,7 +88,7 @@ def load_dataset_with_config(conf: Dict[str, Any]) -> Dataset:
             use_auth_token=True,
             cache_dir=conf["cache_dir"],
         )
-    # Or load from git lfs files
+    # Or load from git lfs files, if there isn't a local concatenated dataset
     elif not os.path.exists(conf["concat_output"]):
         datasets = []
         # In practice, it might stuck here, you can hit Ctrl+C and run it again.
@@ -110,9 +115,6 @@ def load_dataset_with_config(conf: Dict[str, Any]) -> Dataset:
         num_proc=os.cpu_count(),
         desc="Adding index...",
     )
-
-    if conf["sample_size"] > 0:
-        ds = ds.select(range(conf["sample_size"]))
 
     return ds
 
@@ -260,7 +262,7 @@ def find_duplicate_communities(
     output: str,
     report_false_positive_rate: bool = False,
     reference_records: Iterable | Dataset | None = None,
-    threashold: float = 0.85,
+    threshold: float = 0.85,
     column: str = "content",
     input_graph: str | None = None,
     output_graph: str | None = None,
@@ -281,7 +283,7 @@ def find_duplicate_communities(
         Whether to report the false positive rate.
     reference_records : Iterable | Dataset | None
         The reference records. It can be an iterable or a Dataset. It is only used when `report_false_positive_rate` is True.
-    threashold : float
+    threshold : float
         The threshold to use for calculating the false positive rate. It is only used when `report_false_positive_rate` is True.
     column : str
         The column to use for calculating the false positive rate. It is only used when `report_false_positive_rate` is True.
@@ -329,6 +331,8 @@ def find_duplicate_communities(
         # for graph in tqdm(graphs, desc="Merging graphs..."):
         #     nk.graphtools.merge(g, pickle.loads(graph["__graph__"]))
         if output_graph is not None:
+            if os.path.exists(output_graph):
+                os.remove(output_graph)
             nk.writeGraph(g, str(output_graph), nk.Format.NetworkitBinary)
 
     to_remove: Set[int] = set()
@@ -345,7 +349,9 @@ def find_duplicate_communities(
             if len(samples) < SAMPLE_SIZE and SAMPLE_MAX_SIZE > len(component) >= SAMPLE_MIN_SIZE:
                 samples.append(component[:])
     else:
-        partition = nk.community.detectCommunities(g)
+        algo = nk.community.PLM(g, refine=False)
+        algo.run()
+        partition = algo.getPartition()
         communities = list(partition.getSubsetIds())
         random.shuffle(communities)
         # This can be slow if there are many communities
@@ -353,14 +359,14 @@ def find_duplicate_communities(
             ids = partition.getMembers(i)
             to_remove.update(sorted(ids)[1:])
             if len(samples) < SAMPLE_SIZE and SAMPLE_MAX_SIZE > len(ids) >= SAMPLE_MIN_SIZE:
-                samples.append(ids[:])
+                samples.append(ids)
 
-    nk.community.writeCommunities(partition, str(output))
+    nk.graphio.PartitionWriter().write(partition, str(output))
     if report_false_positive_rate and verbose:
         calculate_average_false_positive_rate(
             samples,
             reference_records,
-            threashold,
+            threshold,
             column,
         )
 
@@ -434,17 +440,18 @@ def find_duplicate_non_extremes(
 if __name__ == "__main__":
 
     def run(
+        # Dataset parameters
         dataset: str = typer.Option("codeparrot/codeparrot-clean-valid", help="The dataset to use"),
         config: str = typer.Option("default", help="Dataset config"),
-        data_dir: str = typer.Option(None, help="Dataset data directory"),
         split: str = typer.Option("train", help="Dataset split"),
+        data_dir: str = typer.Option(None, help="Dataset data directory"),
         column: str = typer.Option("content", help="Dataset column"),
         cache_dir: str = typer.Option(".cache", help="Cache directory"),
+        # MinHash parameters
         num_perm: int = typer.Option(256, help="Number of permutations"),
         seed: int = typer.Option(42, help="Random seed"),
         threshold: float = typer.Option(0.85, help="Minhash threshold"),
-        verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logging"),
-        sample_size: int = typer.Option(-1, help="Sample size"),
+        # IO parameters
         input_neighbor_dataset: str = typer.Option(None, help="Resume from a queried dataset"),
         output_neighbor_dataset: str = typer.Option(None, help="Store a queried dataset"),
         input_graph: str = typer.Option(None, help="Resume from a graph"),
@@ -453,14 +460,15 @@ if __name__ == "__main__":
         output_duplicate_ids: str = typer.Option(None, help="Store computed duplicate ids"),
         output: str = typer.Option(None, help="Store the deduplicated dataset"),
         lfs: bool = typer.Option(False, help="Use LFS files"),
-        community_detection: bool = typer.Option(False, "--community-detection", "-c", help="Use community detection"),
-        extremes: bool = typer.Option(
-            False, "--extremes", "-e", help="Use `extremes` instead of community nor components"
-        ),
-        false_positive_rate: bool = typer.Option(
-            False, "--false-positive-rate", "-f", help="Report false positive rate"
-        ),
+        # Preprocessing parameters
         min_token_length: int = typer.Option(10, help="Minimum token length"),
+        # Postprocessing parameters
+        community_detection: bool = typer.Option(False, "--community-detection", help="Use community detection"),
+        report_false_positive_rate: bool = typer.Option(
+            False, "--report-false-positive-rate", help="Report false positive rate based on random samples"
+        ),
+        # Misc parameters
+        verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logging"),
     ):
         global lsh
         global dup_ids
@@ -469,23 +477,13 @@ if __name__ == "__main__":
         OUTPUT_BASE.mkdir(exist_ok=True, parents=True)
 
         output_neighbor_dataset = output_neighbor_dataset or (OUTPUT_BASE / "neighbors")
-        output_duplicate_ids = output_duplicate_ids or (OUTPUT_BASE / "duplicate_ids.json")
         output_graph = output_graph or (OUTPUT_BASE / "graph.networkit")
-        output = output or (OUTPUT_BASE / "deduplicated")
+        output_duplicate_ids = output_duplicate_ids or (OUTPUT_BASE / "duplicate_ids.json")
         output_concat = OUTPUT_BASE / "concat"
         output_index = OUTPUT_BASE / "index.pkl"
         output_unique_paths = OUTPUT_BASE / "unique_paths.json"
         output_community = OUTPUT_BASE / "community.partition"
-
-        logger.info(f"{'Output base':<30}: {OUTPUT_BASE}")
-        logger.info(f"{'Concat output':<30}: {output_concat}")
-        logger.info(f"{'Index output':<30}: {output_index}")
-        logger.info(f"{'Neighbor dataset output':<30}: {output_neighbor_dataset}")
-        logger.info(f"{'Duplicate ids output':<30}: {output_duplicate_ids}")
-        logger.info(f"{'Unique paths output':<30}: {output_unique_paths}")
-        logger.info(f"{'Graph output':<30}: {output_graph}")
-        logger.info(f"{'Community output':<30}: {output_community}")
-        logger.info(f"{'Output':<30}: {output}")
+        output = output or (OUTPUT_BASE / "deduplicated")
 
         conf = {
             "cache_dir": cache_dir,
@@ -498,7 +496,6 @@ if __name__ == "__main__":
             "split": split,
             "column": column,
             "verbose": verbose,
-            "sample_size": sample_size,
             "input_neighbor_dataset": input_neighbor_dataset,
             "input_neighbor_dataset": input_neighbor_dataset,
             "input_graph": input_graph,
@@ -511,8 +508,7 @@ if __name__ == "__main__":
             "concat_output": output_concat,
             "community_detection": community_detection,
             "community_output": output_community,
-            "extremes": extremes,
-            "false_positive_rate": false_positive_rate,
+            "report_false_positive_rate": report_false_positive_rate,
             "min_token_length": min_token_length,
         }
 
@@ -526,11 +522,11 @@ if __name__ == "__main__":
         time_measures["load_dataset"] = time.time()
         ds = load_dataset_with_config(conf)
         time_measures["load_dataset"] = time.time() - time_measures["load_dataset"]
+
         DATA_SIZE = len(ds)
         start_time = time.time()
 
         if not input_neighbor_dataset and not input_duplicate_ids:
-
             # region: embed
             time_measures["embed"] = time.time()
             embedded = ds.map(
@@ -568,22 +564,14 @@ if __name__ == "__main__":
                 time_measures["save_index"] = time.time() - time_measures["save_index"]
             # endregion
 
+            # region: freeze
             # This prevents the index's reference count being modified so it can be shared across processes
             # It will take some time as everything will be copied into a permanent memory space
             time_measures["freeze_memory"] = time.time()
             gc.disable()
             gc.freeze()
             time_measures["freeze_memory"] = time.time() - time_measures["freeze_memory"]
-
-            # Sanity Check for copy-on-write fork
-            # This is only a simple check. Python makes no guarantees about the id function and phsyical memory address.
-            if verbose:
-                time_measures["check_index"] = time.time()
-                temp = embedded.select(range(os.cpu_count())).map(
-                    lambda _: {"index_address": id(lsh)}, num_proc=os.cpu_count(), remove_columns=embedded.column_names
-                )
-                assert len(set(temp["index_address"])) == 1, "Index is not shared across processes"
-                time_measures["check_index"] = time.time() - time_measures["check_index"]
+            # endregion
 
             # region: query
             # Do not use fn_kwargs here, it will be pickled instead.
@@ -598,15 +586,19 @@ if __name__ == "__main__":
             )
             time_measures["query"] = time.time() - time_measures["query"]
             # endregion
+
+            # region: save
             time_measures["save_neighbors"] = time.time()
             queried.save_to_disk(output_neighbor_dataset)
             time_measures["save_neighbors"] = time.time() - time_measures["save_neighbors"]
+            # endregion
 
+            # region: unfreeze
             time_measures["unfreeze_memory"] = time.time()
             gc.enable()
             gc.unfreeze()
             time_measures["unfreeze_memory"] = time.time() - time_measures["unfreeze_memory"]
-
+            # endregion
         elif not input_duplicate_ids:
             time_measures["load_neighbors"] = time.time()
             queried = load_from_disk(input_neighbor_dataset)
@@ -618,34 +610,38 @@ if __name__ == "__main__":
         gc.collect()
 
         if not input_duplicate_ids:
+            # region: clustering
             time_measures["clustering"] = time.time()
             queried = queried.filter(
                 lambda x: len(x["__neighbors__"]) > 0, num_proc=os.cpu_count(), desc="Finding duplicates..."
             )
-            if not extremes:
-                dup_ids = find_duplicate_communities(
-                    queried,
-                    conf["community_detection"],
-                    conf["community_output"],
-                    conf["false_positive_rate"],
-                    ds,
-                    conf["threshold"],
-                    conf["column"],
-                    conf["input_graph"],
-                    conf["output_graph"],
-                )
-            else:
-                dup_ids = find_duplicate_non_extremes(queried, ds, conf["column"], conf["threshold"])
+            dup_ids = find_duplicate_communities(
+                records=queried,
+                community_detection=conf["community_detection"],
+                output=conf["community_output"],
+                report_false_positive_rate=conf["report_false_positive_rate"],
+                reference_records=ds,
+                threshold=conf["threshold"],
+                column=conf["column"],
+                input_graph=conf["input_graph"],
+                output_graph=conf["output_graph"],
+            )
             time_measures["clustering"] = time.time() - time_measures["clustering"]
+            # endregion
+
+            # region: save
             time_measures["save_duplicate_ids"] = time.time()
             with open(output_duplicate_ids, "w") as f:
                 json.dump(list(map(str, dup_ids)), f)
             time_measures["save_duplicate_ids"] = time.time() - time_measures["save_duplicate_ids"]
+            # endregion
         else:
+            # region: load
             time_measures["load_duplicate_ids"] = time.time()
             with open(input_duplicate_ids, "r") as f:
                 dup_ids = set((map(int, json.load(f))))
             time_measures["load_duplicate_ids"] = time.time() - time_measures["load_duplicate_ids"]
+            # endregion
 
         del queried
         gc.collect()
@@ -692,6 +688,15 @@ if __name__ == "__main__":
         logger.info(f"{'Duplicate Number':<30}: {DUP_SIZE}")
         logger.info(f"{'Duplicate Rate':<30}: {DUP_SIZE / DATA_SIZE:.2%}")
         logger.info(f"{'Total Time':<30}: {time.time() - start_time:.2f} seconds")
+        logger.info(f"{'Output Base':<30}: {OUTPUT_BASE}")
+        logger.info(f"{'Concatenated Dataset':<30}: {output_concat}")
+        logger.info(f"{'Index':<30}: {output_index}")
+        logger.info(f"{'Neighbor Dataset':<30}: {output_neighbor_dataset}")
+        logger.info(f"{'Duplicate IDs':<30}: {output_duplicate_ids}")
+        logger.info(f"{'Unique Paths':<30}: {output_unique_paths}")
+        logger.info(f"{'Graph':<30}: {output_graph}")
+        logger.info(f"{'Community':<30}: {output_community}")
+        logger.info(f"{'Output':<30}: {output}")
         logger.info("🤗 Happy Deduplicating 🤗")
 
     typer.run(run)
