@@ -9,7 +9,6 @@ import glob
 from tqdm import tqdm
 from multiprocessing import Pool
 
-from human_eval.data import read_problems
 from datasets import load_dataset
 
 
@@ -49,8 +48,8 @@ def extract_docstring(prompt: str) -> str:
 
 
 def human_eval_docstrings():
-    problems = read_problems()
-    docstrings = [extract_docstring(v['prompt']) for k, v in problems.items()]
+    ds = load_dataset("openai_humaneval", split="test")
+    docstrings = [extract_docstring(v['prompt']) for v in ds]
     return docstrings
 
 FILTER_OUT = {
