@@ -89,12 +89,6 @@ def filter_file(data):
             if substring.lower() in content:
                 return False, f"{benchmark}_match"
 
-    # data, filter_reason = filter_content(data, FILTER_ARGS)
-    # if data:
-    #     return True, None
-    # else:
-    #     return False, filter_reason.value
-
     # Return True, None if none of the substrings was found
     return True, None
 
