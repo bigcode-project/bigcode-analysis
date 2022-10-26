@@ -41,6 +41,12 @@ The first time you load the dataset might be slow if it is large, but the data i
 
 ```bash
 pip install -r requirements_alt.txt
+# Quick example
+python minhash_deduplication_alt.py --dataset codeparrot/codeparrot-clean-valid \  
+    --split train \
+    --column content \
+    --cache-dir .cache \
+    --verbose
 # For details on the arguments, see the help message
 python minhash_deduplication_alt.py --help
 ```
@@ -52,7 +58,7 @@ This script basically completes the deduplication in 4 steps:
 3. Query the index. Querying can scale with multiple cores, but it requires the system to support copy-on-write forking mechanism.
 4. Cluster duplicate minhashes and post-process the results. Building a graph (slow) and finding connected components (fast) is another bottleneck that ties to single core performance (networkit uses OpenMP for some algorithms, but not all of them).
 
-Some stats for reference: It took about 6 hours to run this script for the python permissive license dataset on a 80-core 1.8TB RAM machine.
+Some stats for reference: It took about 6 hours to run this script for the python permissive license dataset (176G) on a 80-core 1.8TB RAM machine (GCP M1). 
 
 
 
