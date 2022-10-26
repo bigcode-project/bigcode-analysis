@@ -1,6 +1,6 @@
 # Near deduplication
 
-Code for data near deduplication.
+Code for running near-deduplication with MinHash and LSH indexing
 
 ### Setup 
 ````
