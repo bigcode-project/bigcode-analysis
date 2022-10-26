@@ -10,3 +10,4 @@ Currentky, we remove:
 * keys with a long patterns (ssh, api) are detected and replaced by PI:Key
 
 `pii_processor.py` executes PII on a dataset and saves the result. Scripts for running jobs on multiple datasets (from BigScience) are available in `script`.
+The notebook `analysis.ipynb` shows some PII detection examples with regex and Presidio.
