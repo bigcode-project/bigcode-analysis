@@ -346,6 +346,8 @@ if __name__ == "__main__":
             logger.info(f"Done querying false positives for {benchmark['name']}")
 
             if benchmark["name"] == "openai_humaneval":
+                if "repository_name" not in ds.features or "path" not in ds.features:
+                    break
                 logger.info("Checking HumanEval")
                 KNOWN_PATH = "LaudateCorpus1/code-align-evals-data/human_eval"
                 subset = ds.filter(
