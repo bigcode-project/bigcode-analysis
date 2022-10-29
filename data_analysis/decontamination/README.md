@@ -1,8 +1,8 @@
 # Decontamination
 
 This directory contains several scripts for decontamination of the data.
-1. Exact prompt matching
-2. Near matching
+1. Exact prompt matching `find_substrings.py`
+2. Near matching `minhash.py`
 
 ## Near Matching with MinHash and LSH
 
