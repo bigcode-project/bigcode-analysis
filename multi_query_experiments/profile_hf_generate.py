@@ -1,5 +1,6 @@
 import os
-os.environ['TRANSFORMERS_CACHE'] = '/home/toolkit/hf_transformers_cache'
+# os.environ['TRANSFORMERS_CACHE'] = '/home/toolkit/hf_transformers_cache'
+os.environ['TRANSFORMERS_CACHE'] = os.environ['PWD'] + '/hf_transformers_cache'
 
 import torch
 import time
@@ -8,8 +9,21 @@ import transformers
 from transformers import GPT2Tokenizer, GPT2LMHeadModel, GPT2Config
 from transformers.models.gpt2.modeling_gpt2 import AttentionType
 
+def env(evar:str):
+    return os.environ[evar]
+
+def dev():
+    if torch.cuda.is_available():
+      return torch.device("cuda")
+    else:
+      return torch.device("cpu")
+
+
 print(transformers.__file__)
-print(torch.cuda.get_device_name(0))
+print(f'CUDA is available : {torch.cuda.is_available()}')
+print(f'PWD : {env("PWD")}')
+print(f'transformers_cache : {env("TRANSFORMERS_CACHE")}')
+# print(torch.cuda.get_device_name(0))
 
 def get_test_batch(vocab_size, size, length, dtype=torch.int64, device=None):
     #TODO: eliminate special tokens, for now assumes the last one is the only special token
@@ -53,13 +67,17 @@ def time_generate(
     stats['pad_token_id'] = pad_token_id
     stats['dtype'] = dtype
     stats['device'] = device
-    stats['cuda_device_name'] = torch.cuda.get_device_name(0)
+    if dev() == torch.device('cuda'):
+        stats['cuda_device_name'] = torch.cuda.get_device_name(0)
+    else:
+        stats['cuda_device_name'] = None
+    # stats['cuda_device_name'] = torch.cuda.get_device_name(0)
 
     return inputs, outputs, stats
 
 def profile(attention_type):
-    tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-    
+    tokenizer = GPT2Tokenizer.from_pretrained('gpt2', cache_dir=os.environ['TRANSFORMERS_CACHE'])
+
     config = GPT2Config(
         vocab_size=len(tokenizer),
         n_layer=24,
@@ -72,17 +90,17 @@ def profile(attention_type):
         attention_type=attention_type,
         print_details=False
     )
-    model = GPT2LMHeadModel(config)
-    model = model.to(torch.device('cuda'))
-    
-    inputs = get_test_batch(tokenizer.vocab_size, 1, 4, device=torch.device('cuda'))
-    
-    print(f'-------------------- attention_type == {attention_type}---------------------')
-    
-    inputs, outputs, stats = time_generate(tokenizer.vocab_size, model, 8, 16, 1024, device=torch.device('cuda'))
+    model = GPT2LMHeadModel(config).to(dev())
+    # model = model.to(torch.device('cuda'))
+
+    inputs = get_test_batch(tokenizer.vocab_size, 1, 4, device=dev())
+
+    print(f'-------------------- attention_type == {attention_type} ---------------------')
+
+    inputs, outputs, stats = time_generate(tokenizer.vocab_size, model, 8, 16, 1024, device=dev())
     print(stats)
-    
-# warm up    
+
+# warm up
 profile(AttentionType.MULTI_QUERY)
 
 profile(AttentionType.MULTI_QUERY)

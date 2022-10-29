@@ -1,6 +1,4 @@
-huggingface-hub==0.7.0
 datasets==2.3.2
-scikit-learn==1.1.1
 torch==1.11.0
 transformers @ git+https://github.com/bigcode-project/transformers.git@multi_query
 umap-learn==0.5.3
