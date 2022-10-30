@@ -46,7 +46,7 @@ def decode_batch(tokenizer, outputs):
 
 def time_generate(
     vocab_size, model, input_batch_size, input_batch_length, max_gen_length,
-    num_beams=1, do_sample=False, pad_token_id=50256, dtype=torch.int64, device=None
+    num_beams=1, do_sample=False, pad_token_id=50256, dtype=torch.int64, device=None, tokenizer=None
 ):
     stats = {}
 
@@ -59,6 +59,13 @@ def time_generate(
         model, inputs, max_gen_length, num_beams=num_beams, do_sample=do_sample, pad_token_id=pad_token_id
     )
     stats['generate_text_batch'] = time.time() - t1
+    
+    if do_sample:
+        t1 = time.time()
+        decs = decode_batch(tokenizer, outputs)
+        dt = time.time() - t1
+        stats['decode_batch'] = dt
+    
     stats['input_batch_size'] = input_batch_size
     stats['input_batch_length'] = input_batch_length
     stats['max_gen_length'] = max_gen_length
@@ -97,12 +104,17 @@ def profile(attention_type):
 
     print(f'-------------------- attention_type == {attention_type} ---------------------')
 
-    inputs, outputs, stats = time_generate(tokenizer.vocab_size, model, 8, 16, 1024, device=dev())
+    inputs, outputs, stats = time_generate(tokenizer.vocab_size, model, 8, 16, 1024, device=dev(), tokenizer=tokenizer)
     print(stats)
 
-# warm up
-profile(AttentionType.MULTI_QUERY)
+    
+# def profile_all():
+t0 = time.time()
+# # warm up
+# profile(AttentionType.MULTI_QUERY)
 
 profile(AttentionType.MULTI_QUERY)
 profile(AttentionType.MULTI_QUERY_1)
 profile(AttentionType.MULTI_HEAD)
+dt = time.time() - t0
+print(f'profile_all() total elapsed time : {dt} [s]')
