@@ -1,4 +1,4 @@
-# Profiling of multi head vs multi query attention separatelly
+# Profiling of multi head vs multi query attention separately
 - `attention_types_imp.py` contains simplistic implementations of different attention layers without normalization, masks and softmax, just matrix multiplications and rearranging of tensors:
     - `MultiHead` is a multi head variant closely following the implementaion in Hugging Face.
     - `MultiQuery` is a multi query variant with dimension order of hidden states as in [Megatron-LM](https://github.com/NVIDIA/Megatron-LM) `[sl, bs]`. The reordering of the tensors avoids explicit copies here, however, `bmm` subsequently makes internal copies and  speed suffers. TODO: try with separate tensors for `q`, `k` and `v`.
@@ -8,7 +8,10 @@
 - There is uncertainty about the accuracy times of the profiler. Cpu times, through, decrease slightly in proportion, but still remain significant event for bigger tensors. Around 33% for sequence length of ~2K. However, `MultiQuery1` is the fastest and is ported to HF transformers.
 
 # Profiling of multi head vs multi query attention in HF transformers
-- Implementaion code is [here](`https://github.com/bigcode-project/transformers/tree/multi_query`)
+
+[![Open In SageMaker Studio Lab](https://studiolab.sagemaker.aws/studiolab.svg)](https://studiolab.sagemaker.aws/import/github/ocramz/bigcode-analysis/blob/sagemaker/profile_mqa.ipynb)
+
+- Implementation code is [here](https://github.com/bigcode-project/transformers/tree/multi_query)
 - `profile_hf_generate.py` contains experiments.
 - There are 2 implementations variants of multi query attention controlled by `attention_type` parameter:
     - `AttentionType.MULTI_QUERY` with minimal changes to the code.
