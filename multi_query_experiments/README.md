@@ -11,7 +11,7 @@
 
 [![Open In SageMaker Studio Lab](https://studiolab.sagemaker.aws/studiolab.svg)](https://studiolab.sagemaker.aws/import/github/ocramz/bigcode-analysis/blob/sagemaker/profile_mqa.ipynb)
 
-- Implementaion code is [here](`https://github.com/bigcode-project/transformers/tree/multi_query`)
+- Implementation code is [here](https://github.com/bigcode-project/transformers/tree/multi_query)
 - `profile_hf_generate.py` contains experiments.
 - There are 2 implementations variants of multi query attention controlled by `attention_type` parameter:
     - `AttentionType.MULTI_QUERY` with minimal changes to the code.
