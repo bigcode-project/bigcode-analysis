@@ -20,13 +20,7 @@ def dev():
 
 
 print(transformers.__file__)
-print(f'CUDA device { torch.cuda.get_device_name(0) if torch.cuda.is_available() else None }')
-# print(f'CUDA is available : {torch.cuda.is_available()}')
-# if dev() == torch.device('cuda'):
-#         stats['cuda_device_name'] = torch.cuda.get_device_name(0)
-#     else:
-#         stats['cuda_device_name'] = None
-
+print(f'CUDA device : { torch.cuda.get_device_name(0) if torch.cuda.is_available() else None }')
 print(f'PWD : {env("PWD")}')
 print(f'transformers_cache : {env("TRANSFORMERS_CACHE")}')
 
