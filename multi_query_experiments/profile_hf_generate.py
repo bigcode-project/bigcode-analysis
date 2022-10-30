@@ -1,5 +1,5 @@
 import os
-# os.environ['TRANSFORMERS_CACHE'] = '/home/toolkit/hf_transformers_cache'
+# we cache pretrained models in a user-writable dir (friendlier to SageMaker environments)
 os.environ['TRANSFORMERS_CACHE'] = os.environ['PWD'] + '/hf_transformers_cache'
 
 import torch
@@ -20,10 +20,15 @@ def dev():
 
 
 print(transformers.__file__)
-print(f'CUDA is available : {torch.cuda.is_available()}')
+print(f'CUDA device { torch.cuda.get_device_name(0) if torch.cuda.is_available() else None }')
+# print(f'CUDA is available : {torch.cuda.is_available()}')
+# if dev() == torch.device('cuda'):
+#         stats['cuda_device_name'] = torch.cuda.get_device_name(0)
+#     else:
+#         stats['cuda_device_name'] = None
+
 print(f'PWD : {env("PWD")}')
 print(f'transformers_cache : {env("TRANSFORMERS_CACHE")}')
-# print(torch.cuda.get_device_name(0))
 
 def get_test_batch(vocab_size, size, length, dtype=torch.int64, device=None):
     #TODO: eliminate special tokens, for now assumes the last one is the only special token
@@ -38,7 +43,8 @@ def generate_text_batch(model, inputs, max_length, num_beams=1, do_sample=False,
     )
 
 def decode_batch(tokenizer, outputs):
-    outputs = outputs.numpy().tolist()
+    # outputs = outputs.numpy().tolist()
+    outputs = outputs.tolist()
     return [
         tokenizer.decode(output)
         for output in outputs
@@ -73,12 +79,6 @@ def time_generate(
     stats['do_sample'] = do_sample
     stats['pad_token_id'] = pad_token_id
     stats['dtype'] = dtype
-    stats['device'] = device
-    if dev() == torch.device('cuda'):
-        stats['cuda_device_name'] = torch.cuda.get_device_name(0)
-    else:
-        stats['cuda_device_name'] = None
-    # stats['cuda_device_name'] = torch.cuda.get_device_name(0)
 
     return inputs, outputs, stats
 
@@ -98,17 +98,15 @@ def profile(attention_type):
         print_details=False
     )
     model = GPT2LMHeadModel(config).to(dev())
-    # model = model.to(torch.device('cuda'))
 
     inputs = get_test_batch(tokenizer.vocab_size, 1, 4, device=dev())
 
     print(f'-------------------- attention_type == {attention_type} ---------------------')
 
-    inputs, outputs, stats = time_generate(tokenizer.vocab_size, model, 8, 16, 1024, device=dev(), tokenizer=tokenizer)
+    inputs, outputs, stats = time_generate(tokenizer.vocab_size, model, 8, 16, 1024, device=dev(), tokenizer=tokenizer, do_sample=True)
     print(stats)
 
-    
-# def profile_all():
+
 t0 = time.time()
 # # warm up
 # profile(AttentionType.MULTI_QUERY)
@@ -117,4 +115,4 @@ profile(AttentionType.MULTI_QUERY)
 profile(AttentionType.MULTI_QUERY_1)
 profile(AttentionType.MULTI_HEAD)
 dt = time.time() - t0
-print(f'profile_all() total elapsed time : {dt} [s]')
+print(f'Total elapsed time : {dt} [s]')
