@@ -2,3 +2,4 @@ regex
 tqdm
 pandas
 datasets
+detect-secrets
