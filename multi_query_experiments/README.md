@@ -9,9 +9,9 @@
 
 # Profiling of multi head vs multi query attention in HF transformers
 
-[![Open In SageMaker Studio Lab](https://studiolab.sagemaker.aws/studiolab.svg)](https://studiolab.sagemaker.aws/import/github/ocramz/bigcode-analysis/blob/sagemaker/profile_mqa.ipynb)
+[![Open In SageMaker Studio Lab](https://studiolab.sagemaker.aws/studiolab.svg)](https://studiolab.sagemaker.aws/import/github/bigcode-project/bigcode-analysis/multi_query_experiments/profile_mqa.ipynb)
 
-- Implementation code is [here](https://github.com/bigcode-project/transformers/tree/multi_query)
+- The implementation of multi-query attention currently lives in a custom fork of `transformers` : [here](https://github.com/bigcode-project/transformers/tree/multi_query)
 - `profile_hf_generate.py` contains experiments.
 - There are 2 implementations variants of multi query attention controlled by `attention_type` parameter:
     - `AttentionType.MULTI_QUERY` with minimal changes to the code.
