@@ -43,7 +43,7 @@ limitations under the License.
 
 #@title Define highest risk PII.
 TEXT_COLUMN = "content"
-high_risk_tags = {'KEY', 'EMAIL', 'IP_ADDRESS'} 
+high_risk_tags = {'KEY', 'EMAIL', 'IP_ADDRESS'}
 
 """# Regexes"""
 
@@ -66,10 +66,26 @@ key_pattern = r'((?:(?:[A-Za-z]+[\p{Nd}\p{Pd}\/\+\=:_]+|[\p{Nd}\p{Pd}\/\+\=:]+[A
 ipv4_pattern = r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(?:\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)){3}'
 ipv6_pattern = r'(?:[0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?:(?::[0-9a-fA-F]{1,4}){1,6})|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(?:ffff(?::0{1,4}){0,1}:){0,1}(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(?:2[0-4]|1{0,1}[0-9]){0,1}[0-9])'
 ip_pattern = r"(?:^|[\b\s@?,!;:\'\")(.\p{Han}])(" + r"|".join([ipv4_pattern, ipv6_pattern]) + ")(?:$|[\s@,?!;:\'\"(.\p{Han}])"
-# bigscience old regex: https://regex101.com/r/OZdSUu/5 detects emails without domain name and also catches python version such as python@2.7
-# new regex https://regex101.com/r/7IRXdf/1
-email_pattern = r'([^\s@,?!;:\'\"=)(]+@[^,\s!?;,\'\"=]{3,}[\.][^\s\b\'\"@,?!;:)(.]+)'
-# https://regex101.com/r/mOqi1s/3
+
+# Older regexes:
+#  * https://regex101.com/r/OZdSUu/5 (bigscience old regex, detects emails without domain name and also catches python version such as python@2.7)
+#  * https://regex101.com/r/7IRXdf/1
+#  * https://regex101.com/r/mOqi1s/3
+
+# https://regex101.com/r/EpA5B7/1
+email_pattern = r'''
+    (?<= ^ | [\b\s@,?!;:)('".\p{Han}<] )
+    (
+      [^\b\s@?!;,:)('"<]+
+      @
+      [^\b\s@!?;,/]*
+      [^\b\s@?!;,/:)('">.]
+      \.
+      \p{L} \w{1,}
+    )
+    (?= $ | [\b\s@,?!;:)('".\p{Han}>] )
+'''
+
 #user_pattern = r'(?:^|[\s@,?!;:\'\")(\p{Han}])(@[^\s@,?!;:\'\")(]{3,})'
 # we remove use_pattern because it removes decorators
 
@@ -78,7 +94,7 @@ key_regex = regex.compile(key_pattern, flags=regex.MULTILINE) #, re.MULTILINE)
 ipv4_regex = regex.compile(ipv4_pattern)
 ipv6_regex = regex.compile(ipv6_pattern)
 ip_regex = regex.compile(ip_pattern, flags=regex.MULTILINE) #, re.MULTILINE)
-email_regex = regex.compile(email_pattern, flags=regex.MULTILINE) #, re.MULTILINE)
+email_regex = regex.compile(email_pattern, flags=regex.MULTILINE | regex.VERBOSE)
 #user_regex = regex.compile(user_pattern, flags=regex.MULTILINE) #, re.MULTILINE)
 
 
