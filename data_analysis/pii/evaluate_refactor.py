@@ -18,14 +18,12 @@ def overlapped(a, b, alpha=0.8, beta=0.8):
     return (ref_overlap > alpha and pred_overlap > beta)
 
 
-def compare_intervals(references, predictions, alpha=0.8, beta=0.8):
+def compare_intervals(ref_intervals, pred_intervals, alpha=0.8, beta=0.8):
     """Compare two lists of intervals and return the number 
     of true positives, false positives and false negatives.
     >>> compare_intervals([(0, 7), (10, 20)], [(1,8), (99, 119)], 0, 0)[0]
     {'TP': 1, 'FN': 1, 'FP': 1}
     """
-    ref_intervals = sorted(references, key=lambda x: x[0])
-    pred_intervals = sorted(predictions, key=lambda x: x[0])
     scores = {"TP": 0, "FN": 0, "FP": 0}
     # use index so to recover the original data
     detection_indice = {"TP_pred": set(), "TP_ref": set(), "FN": set(), "FP": set()}
