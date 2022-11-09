@@ -26,9 +26,7 @@ def compare_intervals(ref_intervals, pred_intervals):
         if overlapped(ref_interval, pred_interval):
             ref_matched[ref_idx] = True
             pred_matched[pred_idx] = True
-            ref_idx += 1
-            pred_idx += 1
-        elif ref_interval[0] < pred_interval[0]:
+        if ref_interval[1] < pred_interval[1]:
             ref_idx += 1
         else:
             pred_idx += 1
