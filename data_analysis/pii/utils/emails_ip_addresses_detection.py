@@ -158,7 +158,7 @@ def detect_email_addresses(
                     if tag in ["KEY"]:
                         # Filter out false positive keys
                         if not is_gibberish(value):
-                            print(f"False positive key (not gibberish): {value}")
+                            #(f"False positive key (not gibberish): {value}")
                             continue
                     matches.append(
                         {
