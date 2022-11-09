@@ -8,10 +8,10 @@ def postprocess_secrets(secrets):
     """Postprocess the secrets found by the scan_secrets function
     """
     if secrets:
-        matches = json.dumps(matches)
+        matches = json.dumps(secrets)
         has_secrets = True
     else:
-        matches = ""
+        matches = json.dumps([])
         has_secrets = False
     return matches, has_secrets
 
@@ -22,8 +22,8 @@ def scan_pii_batch(examples, key_detector="regex", new_email_regex=False):
     - secrets: (list) of secrets found
     - has_secrets: (bool) whether the example contains secret
     """
-    secrets = []
-    has_secrets = []
+    list_secrets = []
+    list_has_secrets = []
     for text in examples["content"]:
         secrets = []
         if key_detector == "regex":
@@ -37,9 +37,9 @@ def scan_pii_batch(examples, key_detector="regex", new_email_regex=False):
         # to add this as new columns to datasets we need the same number of samples in each row
         # we save secrets as json strings instead of lists
         matches, has_secrets = postprocess_secrets(secrets)
-        secrets.append(matches)
-        has_secrets.append(has_secrets)
-    return {"secrets": matches, "has_secrets": has_secrets}
+        list_secrets.append(matches)
+        list_has_secrets.append(has_secrets)
+    return {"secrets": list_secrets, "has_secrets": list_has_secrets}
 
 
 def scan_pii_batch_viz(examples, key_detector="regex", new_email_regex=False):
