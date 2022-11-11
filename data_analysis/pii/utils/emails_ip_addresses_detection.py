@@ -50,32 +50,28 @@ ip_pattern = (
     + r"|".join([ipv4_pattern, ipv6_pattern])
     + ")(?:$|[\s@,?!;:'\"(.\p{Han}])"
 )
-email_pattern = r"([^\s@,?!;:\'\"=)(]+@[^,\s!?;,\'\"=]{2,}[\.][^\s\b\'\"@,?!;:)(.]+)"
-email_pattern_2 = r"""
-    (?<= ^ | [\s\b'"@,?!;:)(.\p{Han}ñ] )
+email_pattern = r'''
+    (?<= ^ | [\b\s@,?!;:)('".\p{Han}<] )
     (
-      [^@\s?!;,:\b)('"]+
+      [^\b\s@?!;,:)('"<]+
       @
-      [^@\s!?;,]+
-      [^@\s?!;,:\b)('".]
+      [^\b\s@!?;,/]*
+      [^\b\s@?!;,/:)('">.]
       \.
-      \w{2,}
+      \p{L} \w{1,}
     )
-    (?= $ | [\s\b'"@,?!;:)(.\p{Han}] )
-"""
+    (?= $ | [\b\s@,?!;:)('".\p{Han}>] )
+'''
 
 
-def get_regexes(high_risk_tags={"EMAIL", "IP_ADDRESS", "KEY"}, new_email_regex=False):
+def get_regexes(high_risk_tags={"EMAIL", "IP_ADDRESS", "KEY"}):
     """Returns a dict of regexes to match the PII in high_risk_tags."""
 
     key_regex = regex.compile(key_pattern_2, flags=regex.MULTILINE)
     ipv4_regex = regex.compile(ipv4_pattern)
     ipv6_regex = regex.compile(ipv6_pattern)
     ip_regex = regex.compile(ip_pattern, flags=regex.MULTILINE)
-    email_regex = regex.compile(email_pattern, flags=regex.MULTILINE)
-    email_regex_2 = regex.compile(
-        email_pattern_2, flags=regex.MULTILINE | regex.VERBOSE
-    )
+    email_regex = regex.compile(email_pattern, flags=regex.MULTILINE | regex.VERBOSE)
 
     mst_regexes = {}
     for tag in high_risk_tags:
@@ -89,10 +85,7 @@ def get_regexes(high_risk_tags={"EMAIL", "IP_ADDRESS", "KEY"}, new_email_regex=F
         elif tag == "IP_ADDRESS":
             mst_regexes["IP_ADDRESS"] = ip_regex
         elif tag == "EMAIL":
-            if new_email_regex:
-                mst_regexes["EMAIL"] = email_regex_2
-            else:
-                mst_regexes["EMAIL"] = email_regex
+            mst_regexes["EMAIL"] = email_regex
         else:
             sys.stderr.write("Dont have tag regex pattern for %s =(" % tag)
 
@@ -112,6 +105,16 @@ def matches_date_pattern(matched_str):
             return True
     return False
 
+
+def filter_short_ip(matched_str):
+    """Filter out short IP addresses in this format x.x.x.x or x.x.x
+     usually they are justversions"""
+    # count occurence of dots 
+    dot_count = matched_str.count('.')
+    exclude = (dot_count <= 3 and len(matched_str) <= 7) 
+    return exclude
+
+
 def is_gibberish(matched_str):
     """Checks to make sure the PII span is gibberish and not word like"""
     # pip install gibberish-detector
@@ -120,9 +123,8 @@ def is_gibberish(matched_str):
     Detector = detector.create_from_model('gibberish_data/big.model')
     return Detector.is_gibberish(matched_str.lower())
 
-def detect_email_addresses(
-    content, tag_types={"EMAIL", "IP_ADDRESS"}, new_email_regex=False
-):
+
+def detect_email_addresses(content, tag_types={"EMAIL", "IP_ADDRESS"}):
     """Detects email addresses in a string using regex matching
     Args:
       content (str): A string containing the text to be analyzed.
@@ -132,7 +134,7 @@ def detect_email_addresses(
         A list of dicts containing the tag type, the matched string, and the start and
         end indices of the match.
     """
-    mst_regexes = get_regexes(tag_types, new_email_regex=new_email_regex)
+    mst_regexes = get_regexes(tag_types)
     matches = []
     for tag in tag_types:
         label_pattern = mst_regexes[tag]
@@ -151,11 +153,14 @@ def detect_email_addresses(
                 # new_end = min(len(content), end + 50)
                 # context = content[new_start:new_end]
                 if value:
-                    if tag in ["IP_ADDRESS"]:
+                    if tag == "IP_ADDRESS":
                         # Filter out false positive IPs
-                        if matches_date_pattern(value) or not ip_has_digit(value):
+                        if not ip_has_digit(value) :
                             continue
-                    if tag in ["KEY"]:
+                        if matches_date_pattern(value) or filter_short_ip(value):
+                            print(f"Filtered out IP {value} either date or short")
+                            continue
+                    if tag == "KEY":
                         # Filter out false positive keys
                         if not is_gibberish(value):
                             #(f"False positive key (not gibberish): {value}")
