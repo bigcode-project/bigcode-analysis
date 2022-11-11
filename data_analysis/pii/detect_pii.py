@@ -16,7 +16,7 @@ def postprocess_secrets(secrets):
     return matches, has_secrets
 
 
-def scan_pii_batch(examples, key_detector="regex", new_email_regex=False):
+def scan_pii_batch(examples, key_detector="regex"):
     """Scan a batch of examples from a dataset for secret keys
     This add two columns to the dataset:
     - secrets: (list) of secrets found
@@ -28,10 +28,10 @@ def scan_pii_batch(examples, key_detector="regex", new_email_regex=False):
         secrets = []
         if key_detector == "regex":
             # use a regex to detect keys + emails + ips
-            secrets = secrets + detect_email_addresses(text, tag_types={"KEY", "EMAIL", "IP_ADDRESS"}, new_email_regex=new_email_regex)
+            secrets = secrets + detect_email_addresses(text, tag_types={"KEY", "EMAIL", "IP_ADDRESS"})
         else:
             # for keys use detect-secrets tool
-            secrets = secrets + detect_email_addresses(text, tag_types={"EMAIL", "IP_ADDRESS"}, new_email_regex=new_email_regex)
+            secrets = secrets + detect_email_addresses(text, tag_types={"EMAIL", "IP_ADDRESS"})
             # detect emails and ip addresses with regexes
             secrets = secrets + detect_keys(text)
         # to add this as new columns to datasets we need the same number of samples in each row
@@ -42,17 +42,17 @@ def scan_pii_batch(examples, key_detector="regex", new_email_regex=False):
     return {"secrets": list_secrets, "has_secrets": list_has_secrets}
 
 
-def scan_pii_batch_viz(examples, key_detector="regex", new_email_regex=False):
+def scan_pii_batch_viz(examples, key_detector="regex"):
     """Scan a batch of examples from a dataset for secret keys
     and store results in lists for easy visualization"""
     secrets, outputs = [], []
     for i, text in enumerate(examples["content"]):
         if key_detector=="regex":
             # use a regex to detect keys + emails + ips
-            secrets = secrets + detect_email_addresses(text, tag_types={"KEY", "EMAIL", "IP_ADDRESS"}, new_email_regex=new_email_regex)
+            secrets = secrets + detect_email_addresses(text, tag_types={"KEY", "EMAIL", "IP_ADDRESS"})
         else:
             # for keys use detect-secrets tool
-            secrets = secrets + detect_email_addresses(text, tag_types={"EMAIL", "IP_ADDRESS"}, new_email_regex=new_email_regex)
+            secrets = secrets + detect_email_addresses(text, tag_types={"EMAIL", "IP_ADDRESS"})
             # detect emails and ip addresses with regexes
             secrets = secrets + detect_keys(text)
         if  secrets:
