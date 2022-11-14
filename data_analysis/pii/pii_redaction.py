@@ -11,11 +11,17 @@ def load_json(sample):
 
 
 def random_replacements():
-    """Build dictionaries of random replacements for PII (key, email, IP address"""
+    """Build dictionaries of random replacements for PII (key, email, IP address)
+
+    Emails: replace with one of 4 [random string of 5 characters + @email.com]
+    IP addresses: replace with one of 4 synthetic IP addresses
+    Keys: replace with one of 4 [sequence of 32 random characters/digits]
+
+    TODO: add IPv6 and IPv4 separation
+    """
     letters = string.ascii_lowercase
     lettters_digits = string.ascii_lowercase + string.digits
     generate_ip = lambda: ".".join([str(random.randint(0, 255)) for i in range(4)])
-    generate_email = lambda x: "".join(x, "@email.com")
     # emails = ["dummuy@example.com", "example@email.com", "email@dummy.com"]
     emails = [
         "".join(random.choice(letters) for i in range(5)) + "@email.com"
@@ -49,7 +55,7 @@ def redact_pii_text(text, secrets, replacements=None, add_references=False):
         step = 0
         last_text = text
         for secret in secrets:
-            localhost = ["127.0.0.1", "0:0:0:0:0:0:0:1", "::1"]
+            localhost = ["127.0.0.1", "0:0:0:0:0:0:0:1", "::1", "255.255.255.255", "255.255.255.0"]
             # skip if secret is localhost or broadcast address
             if secret["tag"] == "IP_ADDRESS" and secret["value"].startswith(
                 tuple(localhost)
