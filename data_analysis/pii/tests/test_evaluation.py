@@ -15,11 +15,11 @@ dataset = [
 ]
 
 def test_evaluation():
-    by_tag = evaluate_pii_ds(dataset, overall_score=False, alpha=0.8, beta=0.8)
-    overall = evaluate_pii_ds(dataset, overall_score=True, alpha=0.8, beta=0.8)
+    by_tag = evaluate_pii_ds(dataset, overall_score=False, alpha=0.8, beta=0.8)[0]
+    overall = evaluate_pii_ds(dataset, overall_score=True, alpha=0.8, beta=0.8)[0]
 
     assert round(overall['recall'], 2) == 0.5
     assert round(overall['precision'], 2) == 0.67
     assert by_tag == {'EMAIL': {'recall': 0.5, 'precision': 0.5},
-                'IP_ADDRESS': {'recall': 0, 'precision': 0},
+                'IP_ADDRESS': {'recall': 1, 'precision': 1},
                 'KEY': {'recall': 0.5, 'precision': 1.0}}
