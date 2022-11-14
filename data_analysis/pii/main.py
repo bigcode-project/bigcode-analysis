@@ -5,11 +5,14 @@
 """
 
 import argparse
+import random
+import json
+from pprint import pprint as pp
 
 from datasets import load_dataset
 
 from pii_detection import scan_pii_batch
-from pii_redaction import redact_pii_batch
+from pii_redaction import redact_pii_batch, random_replacements
 
 
 def parseArgs():
@@ -37,6 +40,12 @@ def parseArgs():
         default=100,
         type=int,
         help="Batch size for the PII detection/redaction",
+    )
+    parser.add_argument(
+        "--seed",
+        default=0,
+        type=int,
+        help="Seed for random",
     )
     parser.add_argument(
         "--num_proc",
@@ -81,9 +90,16 @@ def main():
     # redact PII in the dataset
     if args.perform_redaction:
         print("Starting PII redaction...")
+        random.seed(args.seed)
+
         # we use random replacements by default
+        replacements = random_replacements()
+        pp(f"replacements:\n{replacements}")
+        with open("pii_replacements.json", "w") as f:
+            json.dump(replacements, f)
+        
         ds_pii = ds_pii.map(
-            redact_pii_batch,
+            lambda x: redact_pii_batch(x, replacements, add_references=True),
             batched=True,
             batch_size=args.batch_size,
             num_proc=args.num_proc,

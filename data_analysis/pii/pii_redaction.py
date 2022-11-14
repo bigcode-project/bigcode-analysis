@@ -1,7 +1,7 @@
 import json
 import random
 import string
-
+from pprint import pprint
 
 def load_json(sample):
     try:
@@ -83,7 +83,7 @@ def redact_pii_text(text, secrets, replacements=None, add_references=False):
     return result
 
 
-def redact_pii_batch(examples, replacements=None):
+def redact_pii_batch(examples, replacements=None, add_references=False):
     """Anonymize PII in a batch of examples from a dataset"""
     new_contents = []
     references = []
@@ -91,7 +91,9 @@ def redact_pii_batch(examples, replacements=None):
         examples["content"], examples["secrets"], examples["has_secrets"]
     ):
         if has_secrets:
-            result = redact_pii_text(text, secrets, replacements, add_references=True)
+            result = redact_pii_text(text, secrets, 
+                                    replacements=replacements,
+                                    add_references=add_references)
             new_contents.append(result[0])
             references.append(result[1])
         else:
