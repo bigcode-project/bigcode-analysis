@@ -115,18 +115,11 @@ def detect_keys(content, suffix=".txt"):
     matches = []
     if secrets_set:
         for secret in secrets_set[0]:
-            # TODO fix content.index: what if there are multiple occurences of the same key
             if not is_gibberish(secret.secret_value):
-                print(f"False positive key (not gibberish): {secret.secret_value} with len {len(secret.secret_value)}")
                 continue
-            if is_hash(content, secret.secret_value):
-                print(f"False positive key (hash-gibberish): {secret.secret_value} with len {len(secret.secret_value)}")
-                continue
-            if file_has_hashes(content):
-                print(f"False positive key (file has hashes): {secret.secret_value} with len {len(secret.secret_value)}")
+            if is_hash(content, secret.secret_value) or file_has_hashes(content):
                 continue
             indexes = get_indexes(content, secret.secret_value)
-            if len(indexes) > 1: print("Multiple occurences of the same key")
             for start, end in indexes:
                 matches.append(
                     {

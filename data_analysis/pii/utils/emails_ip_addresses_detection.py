@@ -75,7 +75,6 @@ def get_regexes(high_risk_tags={"EMAIL", "IP_ADDRESS", "KEY"}):
 
     mst_regexes = {}
     for tag in high_risk_tags:
-        # print(tag)
         if tag == "KEY":
             mst_regexes["KEY"] = key_regex
         elif tag == "IPv4":
@@ -106,9 +105,9 @@ def matches_date_pattern(matched_str):
     return False
 
 
-def filter_short_ip(matched_str):
-    """Filter out short IP addresses in this format x.x.x.x or x.x.x
-     usually they are justversions"""
+def filter_ip(matched_str):
+    """Filter IP addresses in this format x.x.x.x or x.x.x
+     usually they are just versions"""
     # count occurence of dots 
     dot_count = matched_str.count('.')
     exclude = (dot_count <= 3 and len(matched_str) <= 7) 
@@ -149,21 +148,16 @@ def detect_email_addresses(content, tag_types={"EMAIL", "IP_ADDRESS"}):
                 # setup outputs
                 value = match.group(1)
                 start, end = match.span(1)
-                # new_start = max(0, start - 50)
-                # new_end = min(len(content), end + 50)
-                # context = content[new_start:new_end]
                 if value:
                     if tag == "IP_ADDRESS":
                         # Filter out false positive IPs
                         if not ip_has_digit(value) :
                             continue
-                        if matches_date_pattern(value) or filter_short_ip(value):
-                            print(f"Filtered out IP {value} either date or short")
+                        if matches_date_pattern(value) or filter_ip(value):
                             continue
                     if tag == "KEY":
                         # Filter out false positive keys
                         if not is_gibberish(value):
-                            #(f"False positive key (not gibberish): {value}")
                             continue
                     matches.append(
                         {
