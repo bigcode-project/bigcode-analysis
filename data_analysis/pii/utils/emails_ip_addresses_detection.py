@@ -19,6 +19,8 @@ limitations under the License.
 
 import sys
 import regex
+import ipaddress
+
 from gibberish_detector import detector
 
 # Regexes for PII detection
@@ -105,13 +107,24 @@ def matches_date_pattern(matched_str):
     return False
 
 
-def filter_ip(matched_str):
+def filter_dns_version(matched_str):
     """Filter IP addresses in this format x.x.x.x or x.x.x
-     usually they are just versions"""
+     usually they are just versions (although sometimes DNS servers)"""
     # count occurence of dots 
     dot_count = matched_str.count('.')
     exclude = (dot_count <= 3 and len(matched_str) <= 7) 
     return exclude
+
+
+def not_ip_address(matched_str):
+    """ make sure the string has a valid IP address format
+    e.g: 33.01.33.33 is not a valid IP address because of the 0 in front of 1
+    TODO: fix this directly in the regex"""
+    try:
+        ipaddress.ip_address(matched_str)
+        return False
+    except ValueError:
+        return True
 
 
 def is_gibberish(matched_str):
@@ -153,7 +166,7 @@ def detect_email_addresses(content, tag_types={"EMAIL", "IP_ADDRESS"}):
                         # Filter out false positive IPs
                         if not ip_has_digit(value) :
                             continue
-                        if matches_date_pattern(value) or filter_ip(value):
+                        if matches_date_pattern(value) or not_ip_address(value) or filter_dns_version(value):
                             continue
                     if tag == "KEY":
                         # Filter out false positive keys
