@@ -2,3 +2,5 @@ regex
 tqdm
 pandas
 datasets
+detect_secrets
+gibberish_detector
