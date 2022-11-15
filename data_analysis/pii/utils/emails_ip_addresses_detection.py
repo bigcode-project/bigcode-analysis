@@ -107,12 +107,15 @@ def matches_date_pattern(matched_str):
     return False
 
 
-def filter_dns_version(matched_str):
-    """Filter IP addresses in this format x.x.x.x or x.x.x
-     usually they are just versions (although sometimes DNS servers)"""
+def filter_versions(matched_str, context):
+    """Filter addresses in this format x.x.x.x  and the words dns/server
+    don't appear in the neighboring context, usually they are just versions"""
     # count occurence of dots 
     dot_count = matched_str.count('.')
-    exclude = (dot_count <= 3 and len(matched_str) <= 7) 
+    exclude = (dot_count == 3 and len(matched_str) == 7) 
+    if exclude:
+        if "dns" in context.lower() or "server" in context.lower():
+            return False
     return exclude
 
 
@@ -166,8 +169,12 @@ def detect_email_addresses(content, tag_types={"EMAIL", "IP_ADDRESS"}):
                         # Filter out false positive IPs
                         if not ip_has_digit(value) :
                             continue
-                        if matches_date_pattern(value) or not_ip_address(value) or filter_dns_version(value):
+                        if matches_date_pattern(value):
                             continue
+                        if filter_versions(value, content[start-100:end+100]) or  not_ip_address(value):
+                            continue
+                        # combine if conditions in one
+
                     if tag == "KEY":
                         # Filter out false positive keys
                         if not is_gibberish(value):

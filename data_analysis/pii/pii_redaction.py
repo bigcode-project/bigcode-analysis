@@ -4,6 +4,18 @@ import string
 import ipaddress
 
 
+# List of random private IP addresses to use as replacements
+REPLACEMENTS_IP = {
+    "IPv4": ["172.16.31.10", "172.16.58.3", "192.168.127.12", "192.168.3.11"],
+    "IPv6": [
+        "fd00:c2b6:b24b:be67:2827:688d:e6a1:6a3b",
+        "fc00:e968:6179::de52:7100",
+        "fc00:db20:35b:7399::5",
+        "fdf8:f53e:61e4::18",
+    ],
+}
+
+
 def load_json(sample):
     try:
         return json.loads(sample)
@@ -11,21 +23,11 @@ def load_json(sample):
         return []
 
 
-def synthetic_ip(format="IPv4", n=4):
-    """Generate synthetic IP addresses"""
-    MAX_IPV4 = ipaddress.IPv4Address._ALL_ONES  # 2 ** 32 - 1
-    MAX_IPV6 = ipaddress.IPv6Address._ALL_ONES  # 2 ** 128 - 1
-    if format == "IPv4":
-        return [ipaddress.IPv4Address._string_from_ip_int(random.randint(0, MAX_IPV4)) for _ in range(n)]
-    else:
-        return [ipaddress.IPv6Address._string_from_ip_int(random.randint(0, MAX_IPV6)) for _ in range(n)]
-
-
 def random_replacements():
     """Build dictionaries of random replacements for PII (key, email, IP address)
 
     Emails: replace with one of 4 [random string of 5 characters + @email.com]
-    IP addresses: replace with one of 4 synthetic IP addresses (IPv4 or IPv6)
+    IP addresses: replace with one of 4 synthetic private IP addresses (IPv4 or IPv6)
     Keys: replace with one of 4 [sequence of 32 random characters/digits]
 
     TODO: add IPv6 and IPv4 separation
@@ -39,9 +41,7 @@ def random_replacements():
     keys = [
         "".join(random.choice(lettters_digits) for i in range(32)) for i in range(4)
     ]
-    ip_replacements_v4 = synthetic_ip(format="IPv4", n=4)
-    ip_replacements_v6 = synthetic_ip(format="IPv6", n=4)
-    ip_addresses = {"IPv4": ip_replacements_v4, "IPv6": ip_replacements_v6}
+    ip_addresses = REPLACEMENTS_IP
     return {"EMAIL": emails, "KEY": keys, "IP_ADDRESS": ip_addresses}
 
 
@@ -53,8 +53,7 @@ def replace_ip(value, replacements_dict):
     except ValueError:
         try:
             ipaddress.IPv6Address(value)
-            replacement = random.choice(replacements_dict["IP_ADDRESS"]["IPv6"])
-            return replacement
+            return random.choice(replacements_dict["IP_ADDRESS"]["IPv6"])
         except ValueError:
             # this doesn't happen if we already use ipaddress filter in the detection
             print("Invalid IP address")
@@ -67,7 +66,7 @@ def is_private_ip(ip):
     return ip.is_private
 
 
-def redact_pii_text(text, secrets, replacements=None, add_references=False):
+def redact_pii_text(text, secrets, replacements, add_references=False):
     """Redact PII in a text
     Args:
         text (str): text to redact
@@ -78,8 +77,6 @@ def redact_pii_text(text, secrets, replacements=None, add_references=False):
     Returns:
         text (str): new text with redacted secrets
     """
-    if not replacements:
-        replacements = random_replacements()
     secrets = load_json(secrets)
     if secrets:
         secrets = sorted(secrets, key=lambda x: x["start"])
@@ -100,9 +97,10 @@ def redact_pii_text(text, secrets, replacements=None, add_references=False):
             if secret["value"] in replaced_secrets:
                 replacement = replaced_secrets[secret["value"]]
             else:
-                replacement = random.choice(replacements[secret["tag"]])
                 if secret["tag"] == "IP_ADDRESS":
                     replacement = replace_ip(secret["value"], replacements)
+                else:
+                    replacement = random.choice(replacements[secret["tag"]])
                 replaced_secrets[secret["value"]] = replacement
             subparts.append(replacement)
             replaced_secrets[secret["value"]] = replacement
@@ -122,17 +120,17 @@ def redact_pii_text(text, secrets, replacements=None, add_references=False):
     return result
 
 
-def redact_pii_batch(examples, replacements=None, add_references=False):
+def redact_pii_batch(examples, replacements=None):
     """Anonymize PII in a batch of examples from a dataset"""
     new_contents = []
     references = []
-    for text, secrets, has_secrets in zip(
-        examples["content"], examples["secrets"], examples["has_secrets"]
+    for text, secrets, has_secrets, id in zip(
+        examples["content"], examples["secrets"], examples["has_secrets"], examples["id"]
     ):
         if has_secrets:
-            result = redact_pii_text(text, secrets, 
-                                    replacements=replacements,
-                                    add_references=add_references)
+            result = redact_pii_text(
+                text, secrets, replacements=replacements, add_references=True
+            )
             new_contents.append(result[0])
             references.append(result[1])
         else:

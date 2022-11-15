@@ -81,7 +81,7 @@ def main():
     # scan the dataset for PII
     print("Starting PII detection...")
     ds_pii = ds.map(
-        scan_pii_batch, batched=True, batch_size=args.batch_size, num_proc=args.num_proc
+        scan_pii_batch, batched=True, batch_size=args.batch_size, num_proc=args.num_proc, load_from_cache_file=False
     )
     print(f"Dataset after PII detection:\n{ds_pii}")
     print(f"Number of samples that contained PII: {sum(ds_pii['has_secrets'])}")
@@ -99,10 +99,11 @@ def main():
             json.dump(replacements, f)
         
         ds_pii = ds_pii.map(
-            lambda x: redact_pii_batch(x, replacements, add_references=True),
+            lambda x: redact_pii_batch(x, replacements),
             batched=True,
             batch_size=args.batch_size,
             num_proc=args.num_proc,
+            load_from_cache_file=False
         )
         print(f"Dataset after PII redaction:\n{ds_pii}")
 
