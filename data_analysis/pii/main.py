@@ -2,13 +2,17 @@
     * we use one regex for emails and one for IP addresses
     * for keys we use detect-secrets tool, which is a combination of multiple plgins (regexes, entropy..)
     * we also add some filters on top of each tool to decrease the number of false positives
+This script is adapted from https://github.com/bigscience-workshop/data-preparation/blob/main/preprocessing/training/02_pii/pii_processor.py
 """
 
 import argparse
 import random
 import json
-from pprint import pprint as pp
+import logging
+from pprint import pformat
+from functools import partial
 
+from datasets.utils.logging import set_verbosity_info
 from datasets import load_dataset
 
 from pii_detection import scan_pii_batch
@@ -28,6 +32,12 @@ def parseArgs():
         default="data/",
         type=str,
         help="Data subset to use.",
+    )
+    parser.add_argument(
+        "--text_column",
+        default="content",
+        type=str,
+        help="Text column to use, if will be renamed to content",
     )
     parser.add_argument(
         "--split",
@@ -54,9 +64,27 @@ def parseArgs():
         help="Number of processes to use for the PII detection/redaction",
     )
     parser.add_argument(
-        "--perform_redaction",
-        action="store_false",
-        help="Whether to perform redaction of PII",
+        "--no_redaction",
+        action="store_true",
+        help="If set, we don't perform redaction",
+    )
+    parser.add_argument(
+        "--add_reference_text",
+        default=True,
+        type=bool,
+        help="If True we add the reference text with PII between delimiters \
+        in the redacted text -used for visualization-",
+    )
+    parser.add_argument(
+        "--check_all_files",
+        action="store_true",
+        help="If set, we check all files, not only the ones that contain PII",
+    )
+    parser.add_argument(
+        "--check_sampling_size",
+        default=1000,
+        type=int,
+        help="Number of samples to check for PII",
     )
     parser.add_argument(
         "--push_to_hub",
@@ -66,50 +94,116 @@ def parseArgs():
     # add argument for nale of dataset on the hub
     parser.add_argument(
         "--target_dataset",
-        default="PII_dataset",
+        default="ds_pii_redacted",
         type=str,
         help="HF repo name of the target dataset.",
+    )
+    parser.add_argument(
+        "--save_path_disk",
+        default="ds_pii_redacted",
+        type=str,
+        help="Path to save the dataset on disk",
     )
     # add an option of evaluating the pipeline on the PII benchmark we built
     return parser.parse_args()
 
 
-def main():
-    args = parseArgs()
-    ds = load_dataset(args.dataset_name, data_dir=args.subset, split=args.split, use_auth_token=True)
+def get_check_ds(ds, args):
+    if not args.check_all_files:
+        ds_checks = ds.filter(
+            lambda exs: exs["modified"],
+            batched=True,
+            batch_size=args.batch_size,
+            num_proc=args.num_proc
+        )
+    else:
+        ds_checks = ds
+    idx_samples = random.sample(range(len(ds_checks)), min(len(ds_checks), args.check_sampling_size))
+    ds_checks = ds_checks.select(idx_samples)
 
-    # scan the dataset for PII
-    print("Starting PII detection...")
+    return ds_checks
+
+
+def main():
+    set_verbosity_info()
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.INFO)
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        datefmt="%m/%d/%Y %H:%M:%S",
+        level=logging.INFO,
+        #filename="pii.log",
+        handlers=[
+        logging.FileHandler("pii.log"),
+        logging.StreamHandler()
+    ]
+    )
+    args = parseArgs()
+    logger.info(f"** The job is running with the following arguments: **\n{args}\n **** ")
+
+    logger.info(f" ===== Loading {args.dataset_name} =====")
+    ds = load_dataset(args.dataset_name, data_dir=args.subset, split=args.split, use_auth_token=True)
+    if args.text_column != "content":
+        ds = ds.rename_column(args.text_column, "content")
+
+    logger.info(f" ===== Applying PII detection =====")
     ds_pii = ds.map(
         scan_pii_batch, batched=True, batch_size=args.batch_size, num_proc=args.num_proc, load_from_cache_file=False
     )
-    print(f"Dataset after PII detection:\n{ds_pii}")
-    print(f"Number of samples that contained PII: {sum(ds_pii['has_secrets'])}")
-    print(f"Total number of secrets found: {sum(ds_pii['number_secrets'])}")
+    logger.info(f"Dataset info after PII detection:\n{ds_pii}")
+    logger.info(f"Number of samples that contained PII: {sum(ds_pii['has_secrets'])}")
+    logger.info(f"Total number of secrets found: {sum(ds_pii['number_secrets'])}")
 
     # redact PII in the dataset
-    if args.perform_redaction:
-        print("Starting PII redaction...")
+    if not args.no_redaction:
+        logger.info(f" ===== Applying PII redaction =====")
         random.seed(args.seed)
 
         # we use random replacements by default
         replacements = random_replacements()
-        pp(f"replacements:\n{replacements}")
+        logging.info(f"Using the following replacements:\n{pformat(replacements)}")
         with open("pii_replacements.json", "w") as f:
             json.dump(replacements, f)
         
         ds_pii = ds_pii.map(
-            lambda x: redact_pii_batch(x, replacements),
+            partial(redact_pii_batch, replacements=replacements, add_references=args.add_reference_text),
             batched=True,
             batch_size=args.batch_size,
             num_proc=args.num_proc,
             load_from_cache_file=False
         )
-        print(f"Dataset after PII redaction:\n{ds_pii}")
+        logging.info(f"Dataset info after PII redaction:\n{ds_pii}")
 
+        # check the dataset
+        logger.info(f" ===== Checking {args.check_sampling_size} samples from those modified in the dataset =====")
+        ds_checks = get_check_ds(ds_pii, args)
+
+        # save checks dataset
+        if len(ds_checks) == 0:
+            logger.info("Dataset was empty. Not saving anything.")
+        else:
+            logger.info(f"Checks dataset info {ds_checks}")
+            if args.push_to_hub:
+                logger.info(f"Pushing the checks dataset to the Hub as {args.target_dataset}_checks")
+                ds_checks.push_to_hub(args.target_dataset + "_checks")
+            else:
+                logger.info(f"Saving the checks dataset to disk")
+                ds_checks.save_to_disk(args.save_path_disk + "_checks")
+        logger.info("Removing columns that are not needed for the final dataset")
+        columns = ["content", "modified", "has_secrets", "number_secrets"]
+        if args.add_reference_text:
+            columns.append("references")
+        ds_pii = ds_pii.remove_columns(columns) 
+    
+    # save the final dataset
     if args.push_to_hub:
+        logger.info(f" ===== Pushing the dataset to the Hub as: {args.target_dataset} =====")
         ds_pii.push_to_hub(args.target_dataset)
-
+    else:
+        logger.info(f" ===== Saving the dataset to disk in {args.save_path_disk} =====")
+        ds_pii.save_to_disk(args.save_path_disk)
+    
+    logger.info(f" ===== Dataset saved successfully =====")
 
 if __name__ == "__main__":
     main()
