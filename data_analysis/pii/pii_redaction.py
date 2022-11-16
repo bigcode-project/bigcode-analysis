@@ -15,6 +15,24 @@ REPLACEMENTS_IP = {
     ],
 }
 
+# providergs = ["google", "cloudfare", "alternate-dns", "quad9","open-dns", "comodo", "adguard"]
+POPULAR_DNS_SERVERS = [
+    "8.8.8.8",
+    "8.8.4.4",
+    "1.1.1.1",
+    "1.0.0.1",
+    "76.76.19.19",
+    "76.223.122.150",
+    "9.9.9.9",
+    "149.112.112.112",
+    "208.67.222.222",
+    "208.67.220.220",
+    "8.26.56.26",
+    "8.20.247.20",
+    "94.140.14.14",
+    "94.140.15.15",
+]
+
 
 def load_json(sample):
     try:
@@ -72,12 +90,13 @@ def redact_pii_text(text, secrets, replacements, add_references=False):
         text (str): text to redact
         secrets (json): json string with the secrets to redact
         replacements (dict): dictionary of replacements for each PII type
-        add_references (bool): whether to add references to the redacted text
+        add_references (bool): whether to add references to the redacted text (delimiters to PII)
         for vizualization
     Returns:
         text (str): new text with redacted secrets
     """
     secrets = load_json(secrets)
+    modified = False
     if secrets:
         secrets = sorted(secrets, key=lambda x: x["start"])
         # store the secrets that were replaced here with their replacements
@@ -87,9 +106,12 @@ def redact_pii_text(text, secrets, replacements, add_references=False):
         step = 0
         last_text = text
         for secret in secrets:
-            # skip if the secret is an IP address allocated for private networks
-            if secret["tag"] == "IP_ADDRESS" and is_private_ip(secret["value"]):
-                continue
+            # skip secret if it's an IP address for private networks or popular DNS servers
+            if secret["tag"] == "IP_ADDRESS":
+                # if secret value in popular DNS servers, skip it
+                if is_private_ip(secret["value"]) or (secret["value"] in POPULAR_DNS_SERVERS):
+                    continue
+            modified = True
             subtext = text[step : secret["start"]]
             subpart = subtext if subtext else " "
             subparts.append(subpart)
@@ -112,28 +134,39 @@ def redact_pii_text(text, secrets, replacements, add_references=False):
         # if supbarpts are not empty join them (it can be empty when all secrets were skipped)
         new_text = "".join(subparts) + last_text if subparts else last_text
         if add_references:
-            references = "".join(references) + last_text if references else last_text
+            references = "".join(references) + last_text if references else ""
     else:
         new_text = text
-        references = text
-    result = (new_text, references) if add_references else new_text
+        references = ""
+    result = (new_text, references, modified) if add_references else (new_text, modified)
     return result
 
 
-def redact_pii_batch(examples, replacements=None):
+def redact_pii_batch(examples, replacements, add_references=True):
     """Anonymize PII in a batch of examples from a dataset"""
     new_contents = []
     references = []
-    for text, secrets, has_secrets, id in zip(
-        examples["content"], examples["secrets"], examples["has_secrets"], examples["id"]
+    modified = []
+    for text, secrets, has_secrets in zip(
+        examples["content"],
+        examples["secrets"],
+        examples["has_secrets"],
     ):
         if has_secrets:
-            result = redact_pii_text(
-                text, secrets, replacements=replacements, add_references=True
-            )
-            new_contents.append(result[0])
-            references.append(result[1])
+            if add_references:
+                new_text, reference, modif = redact_pii_text(
+                    text, secrets, replacements, add_references
+                )
+                references.append(reference)
+            else:
+                new_text, modif = redact_pii_text(text, secrets, replacements)
+            new_contents.append(new_text)
+            modified.append(modif)
         else:
             new_contents.append(text)
             references.append(text)
-    return {"new_content": new_contents, "redaction_refs": references}
+            modified.append(False)
+    result = {"new_content": new_contents, "modified": modified}
+    if add_references:
+        result.update({"references": references})
+    return result
