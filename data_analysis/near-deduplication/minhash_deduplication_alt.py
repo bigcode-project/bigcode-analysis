@@ -59,7 +59,7 @@ lsh: MinHashLSH | None = None
 dup_ids: Set[int] | None = None
 
 
-def load_dataset_with_config(conf: Dict[str, Any]) -> Dataset:
+def load_dataset_with_config(conf: Dict[str, Any], fast: bool = False) -> Dataset:
     """
     Load a dataset based on the configuration. Be careful about changing this function,
     as it is used for caching the intermediate results.
@@ -71,6 +71,8 @@ def load_dataset_with_config(conf: Dict[str, Any]) -> Dataset:
         1. Directly from th ehub
         2. From a local git repository
         3. From a local dataset directory that was saved by `save_to_disk` before
+    fast : bool, optional
+        Whether to skip the saving process, by default False
 
     Returns
     -------
@@ -95,14 +97,16 @@ def load_dataset_with_config(conf: Dict[str, Any]) -> Dataset:
         for file in tqdm(sorted(glob.glob(conf["data_dir"] + "/*.jsonl")), desc="Loading datasets..."):
             datasets.append(load_dataset("json", data_files=file, split=conf["split"], cache_dir=conf["cache_dir"]))
         ds = concatenate_datasets(datasets)
-        ds.save_to_disk(conf["concat_output"])
-        ds = load_from_disk(conf["concat_output"])
+        if not fast:
+            ds.save_to_disk(conf["concat_output"])
+            ds = load_from_disk(conf["concat_output"])
     # Or load from the concatenated dataset
     else:
         ds = load_from_disk(conf["concat_output"])
 
     # Assign unique index to each record
     # A token length filtering was used in the Python experiment
+    original_length = len(ds)
     ds = ds.filter(
         lambda x: len({t for t in NON_ALPHA.split(x[conf["column"]]) if t}) >= conf["min_token_length"],
         num_proc=os.cpu_count(),
@@ -115,7 +119,7 @@ def load_dataset_with_config(conf: Dict[str, Any]) -> Dataset:
         desc="Adding index...",
     )
 
-    return ds
+    return ds, original_length
 
 
 def embed_func(idx: int, content: str, *, num_perm: int) -> Dict[str, Any]:
@@ -257,7 +261,6 @@ def calculate_average_false_positive_rate(
 
 def find_duplicate_communities(
     records: Iterable | Dataset,
-    community_detection: bool,
     output: str,
     report_false_positive_rate: bool = False,
     reference_records: Iterable | Dataset | None = None,
@@ -266,6 +269,7 @@ def find_duplicate_communities(
     input_graph: str | None = None,
     output_graph: str | None = None,
     verbose: bool = False,
+    fast: bool = False,
 ) -> Set[int]:
     """
     Find the duplicate communities from the queried dataset.
@@ -292,6 +296,8 @@ def find_duplicate_communities(
         The output graph file to save the graph to.
     verbose : bool
         Whether to print verbose logs and false positive rate stats.
+    fast : bool
+        Whether to skip the saving step, by default False.
 
     Returns
     -------
@@ -309,58 +315,28 @@ def find_duplicate_communities(
             for y in record["__neighbors__"]:
                 g.addEdge(record["__id__"], y, addMissing=True)
 
-        # Merging subgraphs takes roughly the same time as constructing the graph from scratch
-        # def create_graph(idx, neighbors):
-        #     g = nk.graph.Graph()
-        #     for i, y in zip(idx, neighbors):
-        #         for neighbor in y:
-        #             g.addEdge(i, neighbor, addMissing=True)
-        #     return {'__graph__': [pickle.dumps(g)]}
-
-        # graphs = records.map(
-        #     create_graph,
-        #     input_columns=["__id__", "__neighbors__"],
-        #     remove_columns=["__id__", "__neighbors__"],
-        #     batched=True,
-        #     batch_size=100_000,
-        #     num_proc=os.cpu_count(),
-        #     desc="Constructing graph...",
-        # )
-        # g = nk.graph.Graph()
-        # for graph in tqdm(graphs, desc="Merging graphs..."):
-        #     nk.graphtools.merge(g, pickle.loads(graph["__graph__"]))
-        if output_graph is not None:
+        if output_graph is not None and not fast:
             if os.path.exists(output_graph):
                 os.remove(output_graph)
             nk.writeGraph(g, str(output_graph), nk.Format.NetworkitBinary)
 
     to_remove: Set[int] = set()
     samples: List[List[int]] = []
-    if not community_detection:
-        cc = nk.components.ConnectedComponents(g)
-        cc.run()
-        partition = cc.getPartition()
-        components = list(cc.getComponents())
-        random.shuffle(components)
-        for component in tqdm(components, desc="Iterating over components..."):
-            component = sorted(component)
-            to_remove.update(component[1:])
-            if len(samples) < SAMPLE_SIZE and SAMPLE_MAX_SIZE > len(component) >= SAMPLE_MIN_SIZE:
-                samples.append(component[:])
-    else:
-        algo = nk.community.PLM(g, refine=False)
-        algo.run()
-        partition = algo.getPartition()
-        communities = list(partition.getSubsetIds())
-        random.shuffle(communities)
-        # This can be slow if there are many communities
-        for i in tqdm(communities, desc="Iterating over communities..."):
-            ids = partition.getMembers(i)
-            to_remove.update(sorted(ids)[1:])
-            if len(samples) < SAMPLE_SIZE and SAMPLE_MAX_SIZE > len(ids) >= SAMPLE_MIN_SIZE:
-                samples.append(ids)
 
-    nk.graphio.PartitionWriter().write(partition, str(output))
+    cc = nk.components.ConnectedComponents(g)
+    cc.run()
+    partition = cc.getPartition()
+    components = list(cc.getComponents())
+    random.shuffle(components)
+    for component in tqdm(components, desc="Iterating over components..."):
+        component = sorted(component)
+        to_remove.update(component[1:])
+        if len(samples) < SAMPLE_SIZE and SAMPLE_MAX_SIZE > len(component) >= SAMPLE_MIN_SIZE:
+            samples.append(component[:])
+
+    if not fast:
+        nk.graphio.PartitionWriter().write(partition, str(output))
+    
     if report_false_positive_rate and verbose:
         calculate_average_false_positive_rate(
             samples,
@@ -451,6 +427,8 @@ if __name__ == "__main__":
         seed: int = typer.Option(42, help="Random seed"),
         threshold: float = typer.Option(0.85, help="Minhash threshold"),
         # IO parameters
+        input_index: str = typer.Option(None, help="Reuse an index"),
+        output_index: str = typer.Option(None, help="Store an index"),
         input_neighbor_dataset: str = typer.Option(None, help="Resume from a queried dataset"),
         output_neighbor_dataset: str = typer.Option(None, help="Store a queried dataset"),
         input_graph: str = typer.Option(None, help="Resume from a graph"),
@@ -462,24 +440,24 @@ if __name__ == "__main__":
         # Preprocessing parameters
         min_token_length: int = typer.Option(10, help="Minimum token length"),
         # Postprocessing parameters
-        community_detection: bool = typer.Option(False, "--community-detection", help="Use community detection"),
         report_false_positive_rate: bool = typer.Option(
             False, "--report-false-positive-rate", help="Report false positive rate based on random samples"
         ),
         # Misc parameters
         verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logging"),
+        fast: bool = typer.Option(False, help="Skipping any intermediate saving"),
     ):
         global lsh
         global dup_ids
 
-        OUTPUT_BASE = Path("results") / dataset / config / (data_dir or "all") / split / column
+        OUTPUT_BASE = Path("results") / dataset / config / str(int(threshold * 100))  / (data_dir or "all") / split / column
         OUTPUT_BASE.mkdir(exist_ok=True, parents=True)
 
         output_neighbor_dataset = output_neighbor_dataset or (OUTPUT_BASE / "neighbors")
         output_graph = output_graph or (OUTPUT_BASE / "graph.networkit")
         output_duplicate_ids = output_duplicate_ids or (OUTPUT_BASE / "duplicate_ids.json")
         output_concat = OUTPUT_BASE / "concat"
-        output_index = OUTPUT_BASE / "index.pkl"
+        output_index = output_index or (OUTPUT_BASE / "index.pkl")
         output_unique_paths = OUTPUT_BASE / "unique_paths.json"
         output_community = OUTPUT_BASE / "community.partition"
         output = output or (OUTPUT_BASE / "deduplicated")
@@ -495,6 +473,8 @@ if __name__ == "__main__":
             "split": split,
             "column": column,
             "verbose": verbose,
+            "input_index": input_index,
+            "output_index": output_index,
             "input_neighbor_dataset": input_neighbor_dataset,
             "input_neighbor_dataset": input_neighbor_dataset,
             "input_graph": input_graph,
@@ -505,7 +485,6 @@ if __name__ == "__main__":
             "lfs": lfs,
             "index_output": output_index,
             "concat_output": output_concat,
-            "community_detection": community_detection,
             "community_output": output_community,
             "report_false_positive_rate": report_false_positive_rate,
             "min_token_length": min_token_length,
@@ -519,7 +498,7 @@ if __name__ == "__main__":
         )
 
         time_measures["load_dataset"] = time.time()
-        ds = load_dataset_with_config(conf)
+        ds, ORIGINAL_SIZE = load_dataset_with_config(conf, fast=fast)
         time_measures["load_dataset"] = time.time() - time_measures["load_dataset"]
 
         DATA_SIZE = len(ds)
@@ -540,7 +519,7 @@ if __name__ == "__main__":
             # endregion
 
             # region: index
-            if os.path.exists(output_index):
+            if input_index and os.path.exists(input_index):
                 time_measures["load_index"] = time.time()
                 logger.info(f"Loading index from {output_index}")
                 with open(output_index, "rb") as f:
@@ -548,18 +527,27 @@ if __name__ == "__main__":
                 time_measures["load_index"] = time.time() - time_measures["load_index"]
             else:
                 time_measures["create_index"] = time.time()
+                # region: pre-caculate some hash values for faster indexing
+                embedded = embedded.map(
+                    function=lambda x: {
+                        "__hs__": [
+                            bytes((np.array(x["__signature__"], dtype=np.uint64)[start:end]).byteswap().data) for start, end in lsh.hashranges
+                        ],
+                    },
+                    num_proc=os.cpu_count(),
+                    desc=f"Precalculating...",
+                )
+                # endregion
                 with lsh.insertion_session() as session:
                     for data in tqdm(embedded, desc="Indexing signatures..."):
-                        if data["__id__"] in lsh:
-                            continue
-                        session.insert(
-                            data["__id__"],
-                            LeanMinHash(seed=MINHASH_SEED, hashvalues=data["__signature__"]),
-                            check_duplication=False,
-                        )
+                        lsh.keys.insert(data["__id__"], *data["__hs__"], buffer=True)
+                        for H, hashtable in zip(data["__hs__"], lsh.hashtables):
+                            hashtable.insert(H, data["__id__"], buffer=True)
+
                 time_measures["create_index"] = time.time() - time_measures["create_index"]
                 time_measures["save_index"] = time.time()
-                pickle.dump(lsh, open(output_index, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
+                if not fast:
+                    pickle.dump(lsh, open(output_index, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
                 time_measures["save_index"] = time.time() - time_measures["save_index"]
             # endregion
 
@@ -588,7 +576,8 @@ if __name__ == "__main__":
 
             # region: save
             time_measures["save_neighbors"] = time.time()
-            queried.save_to_disk(output_neighbor_dataset)
+            if not fast:
+                queried.save_to_disk(output_neighbor_dataset)
             time_measures["save_neighbors"] = time.time() - time_measures["save_neighbors"]
             # endregion
 
@@ -616,7 +605,6 @@ if __name__ == "__main__":
             )
             dup_ids = find_duplicate_communities(
                 records=queried,
-                community_detection=conf["community_detection"],
                 output=conf["community_output"],
                 report_false_positive_rate=conf["report_false_positive_rate"],
                 reference_records=ds,
@@ -624,15 +612,17 @@ if __name__ == "__main__":
                 column=conf["column"],
                 input_graph=conf["input_graph"],
                 output_graph=conf["output_graph"],
+                fast=fast,
             )
             time_measures["clustering"] = time.time() - time_measures["clustering"]
             # endregion
 
             # region: save
-            time_measures["save_duplicate_ids"] = time.time()
-            with open(output_duplicate_ids, "w") as f:
-                json.dump(list(map(str, dup_ids)), f)
-            time_measures["save_duplicate_ids"] = time.time() - time_measures["save_duplicate_ids"]
+            if not fast:
+                time_measures["save_duplicate_ids"] = time.time()
+                with open(output_duplicate_ids, "w") as f:
+                    json.dump(list(map(str, dup_ids)), f)
+                time_measures["save_duplicate_ids"] = time.time() - time_measures["save_duplicate_ids"]
             # endregion
         else:
             # region: load
@@ -660,16 +650,17 @@ if __name__ == "__main__":
         time_measures["deduplicate"] = time.time() - time_measures["deduplicate"]
 
         if "repository_name" in final_data.features and "path" in final_data.features:
-            time_measures["save_unique_paths"] = time.time()
-            with open(output_unique_paths, "w") as f:
-                temp = final_data.map(
-                    lambda x: {"url": x["repository_name"] + "/" + x["path"]},
-                    num_proc=os.cpu_count(),
-                    remove_columns=final_data.column_names,
-                    desc="Saving unique paths...",
-                )
-                json.dump(list(set(temp["url"])), f)
-            time_measures["save_unique_paths"] = time.time() - time_measures["save_unique_paths"]
+            if not fast:
+                time_measures["save_unique_paths"] = time.time()
+                with open(output_unique_paths, "w") as f:
+                    temp = final_data.map(
+                        lambda x: {"url": x["repository_name"] + "/" + x["path"]},
+                        num_proc=os.cpu_count(),
+                        remove_columns=final_data.column_names,
+                        desc="Saving unique paths...",
+                    )
+                    json.dump(list(set(temp["url"])), f)
+                time_measures["save_unique_paths"] = time.time() - time_measures["save_unique_paths"]
 
         time_measures["save_deduplicated"] = time.time()
         final_data.save_to_disk(output)
@@ -679,23 +670,25 @@ if __name__ == "__main__":
         FINAL_DATA_SIZE = len(final_data)
         DUP_SIZE = DATA_SIZE - FINAL_DATA_SIZE
         LAN = (data_dir or "all").split("/")[-1]
+        PAD = 32
         for key in time_measures:
-            logger.info(f"{' '.join(key.split('_')).title():<30}: {time_measures[key]:.2f} seconds")
+            logger.info(f"{' '.join(key.split('_')).title():<{PAD}}: {time_measures[key]:.2f} seconds")
 
-        logger.info(f"{'Language':<30}: {LAN}")
-        logger.info(f"{'Data Number':<30}: {DATA_SIZE}")
-        logger.info(f"{'Duplicate Number':<30}: {DUP_SIZE}")
-        logger.info(f"{'Duplicate Rate':<30}: {DUP_SIZE / DATA_SIZE:.2%}")
-        logger.info(f"{'Total Time':<30}: {time.time() - start_time:.2f} seconds")
-        logger.info(f"{'Output Base':<30}: {OUTPUT_BASE}")
-        logger.info(f"{'Concatenated Dataset':<30}: {output_concat}")
-        logger.info(f"{'Index':<30}: {output_index}")
-        logger.info(f"{'Neighbor Dataset':<30}: {output_neighbor_dataset}")
-        logger.info(f"{'Duplicate IDs':<30}: {output_duplicate_ids}")
-        logger.info(f"{'Unique Paths':<30}: {output_unique_paths}")
-        logger.info(f"{'Graph':<30}: {output_graph}")
-        logger.info(f"{'Community':<30}: {output_community}")
-        logger.info(f"{'Output':<30}: {output}")
+        logger.info(f"{'Language':<{PAD}}: {LAN}")
+        logger.info(f"{'Data Number (before filtering)':<{PAD}}: {ORIGINAL_SIZE}")
+        logger.info(f"{'Data Number (after filtering)':<{PAD}}: {DATA_SIZE}")
+        logger.info(f"{'Duplicate Number':<{PAD}}: {DUP_SIZE}")
+        logger.info(f"{'Duplicate Rate':<{PAD}}: {DUP_SIZE / DATA_SIZE:.2%}")
+        logger.info(f"{'Total Time':<{PAD}}: {time.time() - start_time:.2f} seconds")
+        logger.info(f"{'Output Base':<{PAD}}: {OUTPUT_BASE}")
+        logger.info(f"{'Concatenated Dataset':<{PAD}}: {output_concat}")
+        logger.info(f"{'Index':<{PAD}}: {output_index}")
+        logger.info(f"{'Neighbor Dataset':<{PAD}}: {output_neighbor_dataset}")
+        logger.info(f"{'Duplicate IDs':<{PAD}}: {output_duplicate_ids}")
+        logger.info(f"{'Unique Paths':<{PAD}}: {output_unique_paths}")
+        logger.info(f"{'Graph':<{PAD}}: {output_graph}")
+        logger.info(f"{'Community':<{PAD}}: {output_community}")
+        logger.info(f"{'Output':<{PAD}}: {output}")
         logger.info("🤗 Happy Deduplicating 🤗")
 
     typer.run(run)
