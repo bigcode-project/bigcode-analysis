@@ -45,9 +45,11 @@ def find_cluster_extrema(cluster, jaccard_threshold):
             code2 = element2[cfg.CONTENT]
             if jaccard_similarity(code1, code2) >= jaccard_threshold:
                 element2["copies"] += 1
+                element2["others"].append(element1)
                 break
         else:
             element1["copies"] = 1
+            element1["others"] = []
             extremes.append(element1)
     return extremes
 
@@ -57,7 +59,7 @@ def _compute_min_hash(element):
 
     min_hash = get_min_hash([t for t in NON_ALPHA.split(data[cfg.CONTENT]) if len(t.strip()) > 0])
     if min_hash is not None:
-        return (index, data[cfg.PATH_COLUMN]), min_hash
+        return (index, data[cfg.PATH_COLUMN], *(data[col] for col in cfg.OTHER_COLUMNS)), min_hash
 
 def get_min_hash(tokens: List[str]):
     """Compute the MinHash of a code snippet."""

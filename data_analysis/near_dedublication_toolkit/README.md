@@ -1,7 +1,7 @@
 ## Near deduplication with min hash lsh index
-Code taken from https://github.com/bigcode-project/bigcode-analysis/tree/main/data_analysis/near-deduplication and changed to be run on distributed Dask cluster and independent nodes with max RAM usage as for now under 600GB but with potential to be reduced even more if we distribute minhash lsh index itself in step 2 and divide minhash cluster buckets additionally according to cluster element count, not just cluster number in step 3.
+Code taken from https://github.com/bigcode-project/bigcode-analysis/tree/main/data_analysis/near-deduplication and changed to be run on distributed Dask cluster and independent nodes with max RAM usage as for now under 600GB but with potential to be reduced even more if to distribute minhash lsh index itself in step 2 and to divide minhash cluster buckets additionally according to cluster element count, not just cluster number in step 3.
 
-Right now the code is in 5 steps which are to be run manually each. However, pipeline can be fully automated either by reducing memory requirements as described above or if we implement dask worker nodes with different resources on toolkit (dask itself allows it)
+Right now the code is in 5 steps which are to be run manually each. However, pipeline can be fully automated either by reducing memory requirements as described above or if to implement dask worker nodes with different resources on toolkit (dask itself allows it)
 
 - `cfg.py` contains configuration
 - `util.py` contains most of the code taken from the above repo
@@ -9,7 +9,7 @@ Right now the code is in 5 steps which are to be run manually each. However, pip
 - `[step_number]_*.child.yaml` contains resources of a worker node if a step is a Dask cluster step
 
  ### 1 step
-Computes min hashes for all data and stores them to files. Runs as Dask cluster on toolkit. 
+Compute min hashes for all data and stores them to files. Runs as Dask cluster on toolkit. 
 ```
 make text2code_dataset/dataset/postprocessing/near_dedup/1_get_min_hashes.run-slim-dask MORE_JOB_ARGS="--data snow.code_llm.data:/data"
 ```
@@ -28,7 +28,7 @@ python text2code_dataset/dataset/postprocessing/near_dedup/3_launchlocal_group_d
 ```
  
 ### 4 step
-Computes pairwise Jaccard similarity within clusters and identifies near duplicates to remove. Rearranges row to remove from per cluster to per data files as in source file split and removes them from source files. Runs as dask task graph on dask cluster. Currently need manual re-run for one cluster bucket for html as it is too big to fit to worker memory (see notes for previous step)
+Computes pairwise Jaccard similarity within clusters and identifies near duplicates to remove. Rearranges row to remove form per cluster to per data files as in source file split and removes them from source files. Runs as dask task graph on dask cluster. Currently need manual re-run for one cluster bucket for html as it is too big to fit to worker memory (see notes for previous step)
 ```
 make text2code_dataset/dataset/postprocessing/near_dedup/4_remove_near_duplicates_by_clusters.run-slim-dask  MORE_JOB_ARGS="--data snow.code_llm.data:/data"
 ```

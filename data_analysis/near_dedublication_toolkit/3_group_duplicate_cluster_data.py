@@ -5,8 +5,11 @@ import re
 import shutil
 import sys
 
+from collections import defaultdict
+
 import text2code_dataset.dataset.postprocessing.near_dedup.cfg as cfg
 import text2code_dataset.dataset.postprocessing.near_dedup.util as util
+from text2code_dataset.dataset.postprocessing.near_dedup.lang_size import langs
 
 from dpu_utils.utils.iterators import ThreadedIterator
 
@@ -43,25 +46,24 @@ def group_data_to_clusters(files, map_el_to_cluster, dest_path, num_cluster_buck
             with out_file.open('ab') as f:
                 pickle.dump(v, f)
 
-def get_el_to_cluster_map(duplicate_clusters):
-    map_el_to_cluster = {}
-    for i, kv in enumerate(duplicate_clusters.items()):
-        k, v = kv
-        file, index, path  = k
-        if file in map_el_to_cluster:
-            map_el_to_cluster[file][index] = (i, path)
-        else:
-            map_el_to_cluster[file] = {index: (i, path)}
+def get_clusters_no_singles(min_hash_clusters):
+    clusters = defaultdict(list)
+    for k, v in min_hash_clusters.items():
+        clusters[v].append(k)
+    return {k: v for k, v in clusters.items() if len(v) > 1}
+
+def get_el_to_cluster_map(clusters):
+    map_el_to_cluster = defaultdict(lambda:defaultdict(tuple))
+    for k, v in clusters.items():
         for el in v:
-            file, index, path  = el
-            if file in map_el_to_cluster:
-                map_el_to_cluster[file][index] = (i, path)
-            else:
-                map_el_to_cluster[file] = {index: (i, path)}
+            map_el_to_cluster[el[0]][el[1]] = (k, el[2])
     return map_el_to_cluster
 
-def run(lang):
+def run(lang_index):
+    lang_index = int(lang_index)
+    lang = langs[lang_index][1]
     print(lang)
+
     dest_path = cfg.dst_min_hash_clusters_data_path / lang
     done_flag_file  = dest_path / cfg.filename_flag_done
     if done_flag_file.is_file():
@@ -80,8 +82,10 @@ def run(lang):
 
     print('number of clusters', len(duplicate_clusters))
 
+    print('get_clusters_no_singles')
+    clusters = get_clusters_no_singles(duplicate_clusters)
     print('get_el_to_cluster_map')
-    map_el_to_cluster = get_el_to_cluster_map(duplicate_clusters)
+    map_el_to_cluster = get_el_to_cluster_map(clusters)
 
     files = list(Path(cfg.src_jsonl_path / lang).glob('*.jsonl'))
     print('number of data files: ', len(files))

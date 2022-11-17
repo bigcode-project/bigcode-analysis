@@ -2,6 +2,8 @@ import pickle
 import re
 import json
 from pathlib import Path
+import shutil
+import pandas as pd
 
 import toolkit_run.dask.apply as apply
 
@@ -15,7 +17,15 @@ from distributed import get_client, secede, rejoin
 def get_cluster_elements_to_remove(cluster, jaccard_threshold):
     extrema = util.find_cluster_extrema(cluster, jaccard_threshold)
     cluster_set = set(el[cfg.file_index_cluster_column]+(el[cfg.PATH_COLUMN],) for el in cluster)
-    extrema_set = set(el[cfg.file_index_cluster_column]+(el[cfg.PATH_COLUMN],) for el in extrema)
+    extrema_set = set()
+    for el in extrema:
+        max_el = el
+        for el2 in el['others']:
+            max_el_stars = 0 if pd.isnull(max_el['max_stars_count']) else max_el['max_stars_count']
+            el2_stars = 0 if pd.isnull(el2['max_stars_count']) else el2['max_stars_count']
+            if el2_stars > max_el_stars:
+                max_el = el2
+        extrema_set.add(max_el[cfg.file_index_cluster_column]+(max_el[cfg.PATH_COLUMN],))
     return cluster_set - extrema_set
 
 def load_clusters(file):
@@ -58,6 +68,11 @@ def filter_data_file(el_to_remove_file, src_data_file, dst_data_file):
     if dst_data_file.is_file():
         return
 
+    # if no data to remove just copy src file
+    if not el_to_remove_file.is_file():
+        shutil.copyfile(src_data_file, dst_data_file)
+        return
+
     to_remove_index = {}
     for data in util.load_itr(el_to_remove_file):
         for el in data:
@@ -93,12 +108,12 @@ def process_by_cluster_bucket(lang, files, dst_per_data_file, src_data, dst_data
     
     dst_data = dst_data / lang
     dst_data.mkdir(parents=True, exist_ok=True)
-    files = list(dst_per_data_file.glob('data_*.pkl'))
+    src_data_files = list((src_data / lang ).glob('*.jsonl'))
     ftrs = []
     client = get_client()
-    for file in files:
-        src_data_file = src_data / lang / f'{file.stem}.jsonl'
-        dst_data_file = dst_data / f'{file.stem}.jsonl'
+    for src_data_file in src_data_files:
+        file = dst_per_data_file / f'{src_data_file.stem}.pkl'
+        dst_data_file = dst_data / f'{src_data_file.stem}.jsonl'
         ftrs.append(client.submit(filter_data_file, file, src_data_file, dst_data_file))
 
     secede()
@@ -113,12 +128,20 @@ class DRParams(apply.DaskRunParams):
     def run(self, client):
         src_path = cfg.dst_min_hash_clusters_data_path
         lang_paths = list(src_path.glob('*'))
-        #lang_paths = [Path('/repo_workdir/filtered/multi_safe_license_raw/by_lang_min_hash_clusters_data/java')]
+        #lang_paths = [Path('/repo_workdir/filtered/multi_safe_license_raw/by_lang_min_hash_clusters_data/scheme')]
         files = {el.stem : list(el.glob('*.pkl')) for el in lang_paths}
+
+        # temporarily while it is not finished
+        #del files['json']
 
         # compute pairwise distance and return elements to remove per cluster bucket
         res_f_by_lang = {}
         for lang, v in files.items():
+            # if language does not have any duplicate files, just add it to results for further processing
+            if len(v) == 0:
+                res_f_by_lang[lang] = []
+                continue
+
             dest_path = cfg.dst_el_to_remove_by_cluster_bucket_path / lang
             dest_path.mkdir(parents=True, exist_ok=True)
             ftrs = []

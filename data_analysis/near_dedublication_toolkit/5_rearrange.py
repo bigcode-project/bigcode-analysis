@@ -12,6 +12,10 @@ def process(lang, files, dst_path):
         print('done')
         return
 
+    dst_files = dst_path.glob('*.parquet')
+    for el in dst_files:
+        el.unlink()
+
     print('lang: ', lang)
     ttl_sz = sum(file.stat().st_size for file in files)
     bucket_size = ttl_sz // cfg.bucket_target_count
@@ -57,7 +61,7 @@ def process(lang, files, dst_path):
 class DRParams(apply.DaskRunParams):
     @property
     def max_cluster_size(self):
-        return 1
+        return 11
 
     def run(self, client):
         src_path = cfg.dst_near_dedup_jsonl_path
@@ -65,10 +69,14 @@ class DRParams(apply.DaskRunParams):
         #lang_paths = [Path('/repo_workdir/filtered/multi_safe_license_raw/by_lang_min_hash_clusters_data/java')]
         files = {el.stem : list(el.glob('data_*.jsonl')) for el in lang_paths}
 
+
         ftrs = []
         for lang, lang_files in files.items():
             dest_path = cfg.dst_near_dedup_parquet_path / lang
             dest_path.mkdir(parents=True, exist_ok=True)
+            done_file_flag = dest_path / cfg.filename_flag_done
+            if done_file_flag.is_file():
+                continue
             ftrs.append(client.submit(
                 process,
                 lang,
