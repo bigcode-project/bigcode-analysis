@@ -1,9 +1,9 @@
 # Data anlaysis
 
 In this folder we provide code for analysis of code datasets:
-* Near deduplication
+* Near deduplication using MinHash and LSH
 
-* Near decontamination from HumanEval and MBPP evaluation banchmarks
+* Data decontamination from HumanEval and MBPP evaluation banchmarks
 
 * Python data analysis:
     * Natural language distribution in comments/docstrings 
