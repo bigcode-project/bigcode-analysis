@@ -11,7 +11,7 @@ pip install -r requirements.txt
 
 For example, you can use the following command to run the pipeline on the python subset of the-stack-smol while saving manual shards (to push directly to hub use `--save_mode hub` and to use random replacements use `--load_replacements False`):
 ```
-python3.9 main.py --dataset_name bigcode/the-stack-smol --subset data/python --batch_size 1000 --num_proc 64 --target_dataset stack-smol-python-pii --load_replacements True --save_mode_checks manual_shards --save_mode manual_shards
+python main.py --dataset_name bigcode/the-stack-smol --subset data/python --batch_size 1000 --num_proc 64 --target_dataset stack-smol-python-pii --load_replacements True --save_mode_checks manual_shards --save_mode manual_shards
 ```
 
 Make sure you have the `gibberish_data` folder in the same directory as the script. It contains a [gibberish-detector](https://github.com/domanchi/gibberish-detector) that we use for the filters for keys.
