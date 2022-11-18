@@ -55,6 +55,12 @@ def is_gibberish(matched_str):
 def is_hash(content, value):
     """Second check if the value is a hash (after gibberish detector)"""
     # get the line where value occured
+    try:
+        res = content.index(value)
+    except ValueError:
+        # TODO: fix this isue happend one for JS in the stack-smol, file did contain value
+        print("Value not found in content, why this happened?")
+        return False
     lines = content[:content.index(value)].splitlines()
     target_line = lines[-1]
     if len(value) in [32, 40, 64]:
@@ -62,6 +68,7 @@ def is_hash(content, value):
         keywords = ["sha", "md5", "hash", "byte"]
         if any(x in target_line.lower() for x in keywords):
             return True
+    return False
 
 def file_has_hashes(content, coeff = 0.02):
     """Checks if the file contains literals 'hash' or 'sha' for more than 2% nb_of_lines"""
