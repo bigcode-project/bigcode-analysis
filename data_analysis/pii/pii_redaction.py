@@ -6,9 +6,10 @@ import ipaddress
 
 # List of random private IP addresses to use as replacements
 REPLACEMENTS_IP = {
-    "IPv4": ["172.16.31.10", "172.16.58.3", "192.168.127.12", "192.168.3.11"],
+    "IPv4": ["172.16.31.10", "172.16.58.3", "172.16.17.32", "192.168.127.12", "192.168.3.11"],
     "IPv6": [
         "fd00:c2b6:b24b:be67:2827:688d:e6a1:6a3b",
+        "fd00:a516:7c1b:17cd:6d81:2137:bd2a:2c5b",
         "fc00:e968:6179::de52:7100",
         "fc00:db20:35b:7399::5",
         "fdf8:f53e:61e4::18",
@@ -41,23 +42,23 @@ def load_json(sample):
         return []
 
 
-def random_replacements():
+def random_replacements(n=10):
     """Build dictionaries of random replacements for PII (key, email, IP address)
 
-    Emails: replace with one of 4 [random string of 5 characters + @email.com]
-    IP addresses: replace with one of 4 synthetic private IP addresses (IPv4 or IPv6)
-    Keys: replace with one of 4 [sequence of 32 random characters/digits]
+    Emails: replace with one of n [random string of 5 characters + @example.com]
+    IP addresses: replace with one of n synthetic private IP addresses (IPv4 or IPv6)
+    Keys: replace with one of n [sequence of 32 random characters/digits]
 
     TODO: add IPv6 and IPv4 separation
     """
     letters = string.ascii_lowercase
     lettters_digits = string.ascii_lowercase + string.digits
     emails = [
-        "".join(random.choice(letters) for i in range(5)) + "@email.com"
-        for i in range(4)
+        "".join(random.choice(letters) for i in range(5)) + "@example.com"
+        for i in range(n)
     ]
     keys = [
-        "".join(random.choice(lettters_digits) for i in range(32)) for i in range(4)
+        "".join(random.choice(lettters_digits) for i in range(32)) for i in range(n)
     ]
     ip_addresses = REPLACEMENTS_IP
     return {"EMAIL": emails, "KEY": keys, "IP_ADDRESS": ip_addresses}
