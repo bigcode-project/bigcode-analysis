@@ -17,7 +17,7 @@ from datasets import load_dataset
 
 from pii_detection import scan_pii_batch
 from pii_redaction import redact_pii_batch, random_replacements
-
+from utils.manual_sharding import save_manual_shards
 
 def parseArgs():
     parser = argparse.ArgumentParser(description="PII detection and redaction")
@@ -69,6 +69,11 @@ def parseArgs():
         help="If set, we don't perform redaction",
     )
     parser.add_argument(
+        "--load_replacements",
+        default=True,
+        help="If set, we load the replacements from file replacements.json",
+    )
+    parser.add_argument(
         "--add_reference_text",
         default=True,
         type=bool,
@@ -82,27 +87,43 @@ def parseArgs():
     )
     parser.add_argument(
         "--check_sampling_size",
-        default=1000,
+        default=0,
         type=int,
         help="Number of samples to check for PII",
     )
+    # for saving the dataset: either push to HF or save locally with datasets or save manual shards
     parser.add_argument(
-        "--push_to_hub",
-        action="store_true",
-        help="Push the dataset to the Hub",
+        "--save_mode",
+        default="manual_shards",
+        type=str,
+        choices=["hub", "local", "manual_shards"],
+        help="How to save the dataset",
     )
-    # add argument for nale of dataset on the hub
+    parser.add_argument(
+        "--save_mode_checks",
+        default="hub",
+        type=str,
+        choices=["hub", "local", "manual_shards"],
+        help="How to save the  checks dataset",
+    )
+    # add argument for name of dataset on the hub
     parser.add_argument(
         "--target_dataset",
-        default="ds_pii_redacted",
+        default="bigcode-pii-pjj",
         type=str,
-        help="HF repo name of the target dataset.",
+        help="HF repo name of the target dataset in save_mode=hub.",
+    )
+    parser.add_argument(
+        "--hub_username",
+        default="loubnabnl",
+        type=str,
+        help="Username for the hub",
     )
     parser.add_argument(
         "--save_path_disk",
-        default="ds_pii_redacted",
+        default="bigcode-pii-pjj-local",
         type=str,
-        help="Path to save the dataset on disk",
+        help="Path to save the dataset on disk in save_mode=local.",
     )
     # add an option of evaluating the pipeline on the PII benchmark we built
     return parser.parse_args()
@@ -118,7 +139,9 @@ def get_check_ds(ds, args):
         )
     else:
         ds_checks = ds
-    idx_samples = random.sample(range(len(ds_checks)), min(len(ds_checks), args.check_sampling_size))
+    if not args.check_sampling_size:
+        sampling_size = len(ds_checks)
+    idx_samples = random.sample(range(len(ds_checks)), min(len(ds_checks), sampling_size))
     ds_checks = ds_checks.select(idx_samples)
 
     return ds_checks
@@ -132,7 +155,6 @@ def main():
         format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
         datefmt="%m/%d/%Y %H:%M:%S",
         level=logging.INFO,
-        #filename="pii.log",
         handlers=[
         logging.FileHandler("pii.log"),
         logging.StreamHandler()
@@ -145,6 +167,9 @@ def main():
     ds = load_dataset(args.dataset_name, data_dir=args.subset, split=args.split, use_auth_token=True)
     if args.text_column != "content":
         ds = ds.rename_column(args.text_column, "content")
+    # add id column to dataset
+    logger.info(f" ===== Adding an index column =====")
+    ds = ds.add_column("index", list(range(len(ds))))
 
     logger.info(f" ===== Applying PII detection =====")
     ds_pii = ds.map(
@@ -160,11 +185,14 @@ def main():
         random.seed(args.seed)
 
         # we use random replacements by default
-        replacements = random_replacements()
+        if args.load_replacements:
+            with open("replacements.json", "r") as f:
+                replacements = json.load(f)
+        else:
+            replacements = random_replacements()
+            with open("random_replacements.json", "w") as f:
+                json.dump(replacements, f)
         logging.info(f"Using the following replacements:\n{pformat(replacements)}")
-        with open("pii_replacements.json", "w") as f:
-            json.dump(replacements, f)
-        
         ds_pii = ds_pii.map(
             partial(redact_pii_batch, replacements=replacements, add_references=args.add_reference_text),
             batched=True,
@@ -183,25 +211,38 @@ def main():
             logger.info("Dataset was empty. Not saving anything.")
         else:
             logger.info(f"Checks dataset info {ds_checks}")
-            if args.push_to_hub:
+            if args.save_mode_checks == "hub":
                 logger.info(f"Pushing the checks dataset to the Hub as {args.target_dataset}_checks")
                 ds_checks.push_to_hub(args.target_dataset + "_checks")
-            else:
+            
+            elif args.save_mode_checks == "local":
                 logger.info(f"Saving the checks dataset to disk")
                 ds_checks.save_to_disk(args.save_path_disk + "_checks")
+            
+            elif args.save_mode_checks == "manual_shards":
+                logger.info(f"Saving the checks dataset in manual shards")
+                save_manual_shards(ds_checks, user=args.hub_username, remote_dataset_repo=args.target_dataset + "_checks")
+            
         logger.info("Removing columns that are not needed for the final dataset")
-        columns = ["content", "modified", "has_secrets", "number_secrets"]
+        columns = ["content", "modified", "secrets", "has_secrets", "number_secrets"]
         if args.add_reference_text:
             columns.append("references")
         ds_pii = ds_pii.remove_columns(columns) 
+        ds_pii = ds_pii.rename_column("new_content", "content")
+        logger.info(f"Dataset info after removing columns:\n{ds_pii}")
     
     # save the final dataset
-    if args.push_to_hub:
+    if args.save_mode == "hub":
         logger.info(f" ===== Pushing the dataset to the Hub as: {args.target_dataset} =====")
         ds_pii.push_to_hub(args.target_dataset)
-    else:
-        logger.info(f" ===== Saving the dataset to disk in {args.save_path_disk} =====")
+
+    elif args.save_mode == "local":
+        logger.info(f" ===== Saving the dataset to disk =====")
         ds_pii.save_to_disk(args.save_path_disk)
+
+    elif args.save_mode == "manual_shards":
+        logger.info(f" ===== Saving the dataset in manual shards =====")
+        save_manual_shards(ds_pii, user=args.hub_username, remote_dataset_repo=args.target_dataset)
     
     logger.info(f" ===== Dataset saved successfully =====")
 
