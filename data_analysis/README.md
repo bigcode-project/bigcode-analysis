@@ -7,7 +7,6 @@ In this folder we provide code for analysis of code datasets:
 
 * Python data analysis:
     * Natural language distribution in comments/docstrings 
-    * Data decontamination for HumanEval and MBPP benchmarks
     * Detection of configuration and test files (valid for other languages than Python)
     * Estimation of the number of files that can be successfully compiled
 
