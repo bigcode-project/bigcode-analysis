@@ -6,7 +6,10 @@ We provide code to detect Emails, IP addresses and API/SSH keys in text datasets
 ```
 pip install -r requirements.txt
 ```
-
+Also make sure to have `git lfs` installed, and login to your `huggingface-hub` account with
+````
+huggingface-cli login
+````
 * `main.py` is the main script to run the pipeline. It takes as input a dataset and outputs a new dataset with the PII removed and some additional column containing the secrets found and their statistics.
 
 For example, you can use the following command to run the pipeline on the python subset of the-stack-smol while saving manual shards (to push directly to hub use `--save_mode hub` and to use random replacements use `--load_replacements False`):
