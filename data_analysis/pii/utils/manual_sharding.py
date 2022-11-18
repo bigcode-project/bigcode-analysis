@@ -22,14 +22,16 @@ def save_manual_shards(ds, user="loubnabnl", remote_dataset_repo="bigcode-pii-pj
     # this will create a folder OUT_PATH that is a clone of REMOTE_DATASET_REPO
     # you can save the shards inside it and do git add/commit/push to push data to the hub
     out_path = remote_dataset_repo
-    repo = Repository(
-            local_dir=out_path,
-            clone_from=user + "/" + remote_dataset_repo,
-            repo_type="dataset",
-            private=True,
-            use_auth_token=True,
-            git_user=user
-            )
+    # if out path doesnt already exist
+    if not os.path.exists(out_path):
+        repo = Repository(
+                local_dir=out_path,
+                clone_from=user + "/" + remote_dataset_repo,
+                repo_type="dataset",
+                private=True,
+                use_auth_token=True,
+                git_user=user
+                )
 
     # files will be numerous we save them in a folder called data inside out_path
     os.mkdir(out_path + "/data")
