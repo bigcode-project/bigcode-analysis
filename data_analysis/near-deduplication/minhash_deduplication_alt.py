@@ -136,18 +136,10 @@ def load_dataset_with_config(
         raise ValueError("No dataset to load.")
 
     original_length = len(ds)
-    # region: Tokenization
-    ds = ds.map(
-        lambda x: {"__tokens__": [t for t in NON_ALPHA.split(x[column]) if t]},
-        num_proc=os.cpu_count(),
-        desc="Tokenizing...",
-    )
-    # endregion
-
     # region: Filtering
     if min_token_length > 0:
         ds = ds.filter(
-            lambda x: len(x["__tokens__"]) >= min_token_length,
+            lambda x: len([t for t in NON_ALPHA.split(x[column]) if t]) >= min_token_length,
             num_proc=os.cpu_count(),
             desc="Filtering short records...",
         )
@@ -166,7 +158,7 @@ def load_dataset_with_config(
     return ds, original_length
 
 
-def embed_func(idx: int, tokens: List[str], *, num_perm: int) -> Dict[str, Any]:
+def embed_func(idx: int, content: str, *, num_perm: int) -> Dict[str, Any]:
     """
     Embed the content of a record into a MinHash object. This function should be
     used with multiprocessing and it scales well with the number of cores.
@@ -175,8 +167,8 @@ def embed_func(idx: int, tokens: List[str], *, num_perm: int) -> Dict[str, Any]:
     ----------
     idx : int
         The index of the record.
-    tokens : List[str]
-        The tokens of the record.
+    content : str
+        The content of the record.
     num_perm : int
         The number of permutations to use in the MinHash object.
     seed : int
@@ -198,7 +190,7 @@ def embed_func(idx: int, tokens: List[str], *, num_perm: int) -> Dict[str, Any]:
     dtype('uint64')
     """
     m = MinHash(num_perm=num_perm, seed=MINHASH_SEED)
-    m.update_batch([token.encode("utf-8") for token in set(tokens)])
+    m.update_batch([token.encode("utf-8") for token in {t for t in NON_ALPHA.split(content) if t}])
     return {"__signature__": m.hashvalues, "__id__": idx}
 
 
@@ -571,7 +563,7 @@ if __name__ == "__main__":
             embedded = ds.map(
                 function=embed_func,
                 fn_kwargs={"num_perm": conf["num_perm"]},
-                input_columns=["__id__", "__tokens__"],
+                input_columns=["__id__", conf["column"]],
                 remove_columns=[conf["column"]],
                 num_proc=os.cpu_count(),
                 desc=f"Fingerprinting...",
