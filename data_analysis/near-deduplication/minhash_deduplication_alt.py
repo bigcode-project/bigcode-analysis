@@ -59,20 +59,47 @@ lsh: MinHashLSH | None = None
 dup_ids: Set[int] | None = None
 
 
-def load_dataset_with_config(conf: Dict[str, Any], fast: bool = False) -> Dataset:
+def load_dataset_with_config(
+    path: str,
+    config: str,
+    column: str,
+    data_dir: str,
+    split: str,
+    cache_dir: str,
+    revision: str,
+    lfs: bool = False,
+    concat_output: str | None = None,
+    fast: bool = False,
+    min_token_length: int = 0,
+) -> Dataset:
     """
-    Load a dataset based on the configuration. Be careful about changing this function,
-    as it is used for caching the intermediate results.
+    Load a dataset based on the configuration. This is only needed during the dataset curation since we might have
+    different files to load from for experiments. Please use `datasets.load_dataset` directly for published datasets.
 
     Parameters
     ----------
-    conf : Dict[str, Any]
-        The configuration. Mainly, there are three ways to load a dataset:
-        1. Directly from th ehub
-        2. From a local git repository
-        3. From a local dataset directory that was saved by `save_to_disk` before
-    fast : bool, optional
-        Whether to skip the saving process, by default False
+    path : str
+        The path to the dataset.
+    config : str
+        The configuration of the dataset.
+    column : str
+        The column to use.
+    data_dir : str
+        The directory to load the data from.
+    split : str
+        The split to use.
+    cache_dir : str
+        The directory to cache the dataset.
+    revision : str
+        The revision of the dataset.
+    lfs : bool
+        Whether the dataset is from Git LFS.
+    concat_output : str | None
+        The path to the concatenated dataset to load or to save.
+    fast : bool
+        Whether skip the intermediate saving steps.
+    min_token_length : int
+        The minimum length of the tokens to keep, default to 0, which means no filtering.
 
     Returns
     -------
@@ -81,48 +108,65 @@ def load_dataset_with_config(conf: Dict[str, Any], fast: bool = False) -> Datase
     """
 
     # Load from hub
-    if not conf["lfs"]:
+    if not lfs:
         ds = load_dataset(
-            conf["dataset"],
-            conf["config"],
-            data_dir=conf["data_dir"],
-            split=conf["split"],
+            path,
+            config,
+            data_dir=data_dir,
+            split=split,
             use_auth_token=True,
-            cache_dir=conf["cache_dir"],
+            cache_dir=cache_dir,
+            revision=revision,
+            num_proc=os.cpu_count(),  # 🎉 it is finally here! 🎉 Nov 18, 2022
         )
     # Or load from git lfs files, if there isn't a local concatenated dataset
-    elif not os.path.exists(conf["concat_output"]):
+    elif concat_output and not os.path.exists(concat_output):
         datasets = []
         # In practice, it might stuck here, you can hit Ctrl+C and run it again.
-        for file in tqdm(sorted(glob.glob(conf["data_dir"] + "/*.jsonl")), desc="Loading datasets..."):
-            datasets.append(load_dataset("json", data_files=file, split=conf["split"], cache_dir=conf["cache_dir"]))
+        for file in tqdm(sorted(glob.glob(data_dir + "/*.jsonl")), desc="Loading datasets..."):
+            datasets.append(load_dataset("json", data_files=file, split=split,  cache_dir=cache_dir))
         ds = concatenate_datasets(datasets)
         if not fast:
-            ds.save_to_disk(conf["concat_output"])
-            ds = load_from_disk(conf["concat_output"])
+            ds.save_to_disk(concat_output)
+            ds = load_from_disk(concat_output)
     # Or load from the concatenated dataset
+    elif concat_output:
+        ds = load_from_disk(concat_output)
     else:
-        ds = load_from_disk(conf["concat_output"])
+        raise ValueError("No dataset to load.")
 
-    # Assign unique index to each record
-    # A token length filtering was used in the Python experiment
     original_length = len(ds)
-    ds = ds.filter(
-        lambda x: len({t for t in NON_ALPHA.split(x[conf["column"]]) if t}) >= conf["min_token_length"],
+    # region: Tokenization
+    ds = ds.map(
+        lambda x: {"__tokens__": [t for t in NON_ALPHA.split(x[column]) if t]},
         num_proc=os.cpu_count(),
-        desc="Filtering records...",
+        desc="Tokenizing...",
     )
+    # endregion
+
+    # region: Filtering
+    if min_token_length > 0:
+        ds = ds.filter(
+            lambda x: len(x["__tokens__"]) >= min_token_length,
+            num_proc=os.cpu_count(),
+            desc="Filtering short records...",
+        )
+    # endregion
+
+    # region: Assign unique sequential ids
     ds = ds.map(
         lambda _, idx: {"__id__": idx},
         with_indices=True,
         num_proc=os.cpu_count(),
-        desc="Adding index...",
+        batched=True,
+        desc="Adding unique index...",
     )
+    # endregion
 
     return ds, original_length
 
 
-def embed_func(idx: int, content: str, *, num_perm: int) -> Dict[str, Any]:
+def embed_func(idx: int, tokens: List[str], *, num_perm: int) -> Dict[str, Any]:
     """
     Embed the content of a record into a MinHash object. This function should be
     used with multiprocessing and it scales well with the number of cores.
@@ -131,8 +175,8 @@ def embed_func(idx: int, content: str, *, num_perm: int) -> Dict[str, Any]:
     ----------
     idx : int
         The index of the record.
-    content : str
-        The content to embed.
+    tokens : List[str]
+        The tokens of the record.
     num_perm : int
         The number of permutations to use in the MinHash object.
     seed : int
@@ -154,7 +198,7 @@ def embed_func(idx: int, content: str, *, num_perm: int) -> Dict[str, Any]:
     dtype('uint64')
     """
     m = MinHash(num_perm=num_perm, seed=MINHASH_SEED)
-    m.update_batch([token.encode("utf-8") for token in {t for t in NON_ALPHA.split(content) if t}])
+    m.update_batch([token.encode("utf-8") for token in set(tokens)])
     return {"__signature__": m.hashvalues, "__id__": idx}
 
 
@@ -336,7 +380,7 @@ def find_duplicate_communities(
 
     if not fast:
         nk.graphio.PartitionWriter().write(partition, str(output))
-    
+
     if report_false_positive_rate and verbose:
         calculate_average_false_positive_rate(
             samples,
@@ -420,6 +464,7 @@ if __name__ == "__main__":
         config: str = typer.Option("default", help="Dataset config"),
         split: str = typer.Option("train", help="Dataset split"),
         data_dir: str = typer.Option(None, help="Dataset data directory"),
+        revision: str = typer.Option("main", help="Dataset revision"),
         column: str = typer.Option("content", help="Dataset column"),
         cache_dir: str = typer.Option(".cache", help="Cache directory"),
         # MinHash parameters
@@ -450,7 +495,9 @@ if __name__ == "__main__":
         global lsh
         global dup_ids
 
-        OUTPUT_BASE = Path("results") / dataset / config / str(int(threshold * 100))  / (data_dir or "all") / split / column
+        OUTPUT_BASE = (
+            Path("results") / dataset / config / str(int(threshold * 100)) / (data_dir or "all") / split / column
+        )
         OUTPUT_BASE.mkdir(exist_ok=True, parents=True)
 
         output_neighbor_dataset = output_neighbor_dataset or (OUTPUT_BASE / "neighbors")
@@ -468,6 +515,7 @@ if __name__ == "__main__":
             "seed": seed,
             "threshold": threshold,
             "dataset": dataset,
+            "revision": revision,
             "config": config,
             "data_dir": data_dir,
             "split": split,
@@ -488,6 +536,7 @@ if __name__ == "__main__":
             "community_output": output_community,
             "report_false_positive_rate": report_false_positive_rate,
             "min_token_length": min_token_length,
+            "fast": fast,
         }
 
         time_measures = {}
@@ -498,7 +547,19 @@ if __name__ == "__main__":
         )
 
         time_measures["load_dataset"] = time.time()
-        ds, ORIGINAL_SIZE = load_dataset_with_config(conf, fast=fast)
+        ds, ORIGINAL_SIZE = load_dataset_with_config(
+            path=conf["dataset"],
+            config=conf["config"],
+            column=conf["column"],
+            data_dir=conf["data_dir"],
+            split=conf["split"],
+            cache_dir=conf["cache_dir"],
+            revision=conf["revision"],
+            lfs=conf["lfs"],
+            concat_output=conf["concat_output"],
+            fast=conf["fast"],
+            min_token_length=conf["min_token_length"],
+        )
         time_measures["load_dataset"] = time.time() - time_measures["load_dataset"]
 
         DATA_SIZE = len(ds)
@@ -510,7 +571,7 @@ if __name__ == "__main__":
             embedded = ds.map(
                 function=embed_func,
                 fn_kwargs={"num_perm": conf["num_perm"]},
-                input_columns=["__id__", conf["column"]],
+                input_columns=["__id__", "__tokens__"],
                 remove_columns=[conf["column"]],
                 num_proc=os.cpu_count(),
                 desc=f"Fingerprinting...",
@@ -531,14 +592,15 @@ if __name__ == "__main__":
                 embedded = embedded.map(
                     function=lambda x: {
                         "__hs__": [
-                            bytes((np.array(x["__signature__"], dtype=np.uint64)[start:end]).byteswap().data) for start, end in lsh.hashranges
+                            bytes((np.array(x["__signature__"], dtype=np.uint64)[start:end]).byteswap().data)
+                            for start, end in lsh.hashranges
                         ],
                     },
                     num_proc=os.cpu_count(),
                     desc=f"Precalculating...",
                 )
                 # endregion
-                with lsh.insertion_session() as session:
+                with lsh.insertion_session():
                     for data in tqdm(embedded, desc="Indexing signatures..."):
                         lsh.keys.insert(data["__id__"], *data["__hs__"], buffer=True)
                         for H, hashtable in zip(data["__hs__"], lsh.hashtables):
@@ -546,7 +608,7 @@ if __name__ == "__main__":
 
                 time_measures["create_index"] = time.time() - time_measures["create_index"]
                 time_measures["save_index"] = time.time()
-                if not fast:
+                if not conf["fast"]:
                     pickle.dump(lsh, open(output_index, "wb"), protocol=pickle.HIGHEST_PROTOCOL)
                 time_measures["save_index"] = time.time() - time_measures["save_index"]
             # endregion
@@ -576,7 +638,7 @@ if __name__ == "__main__":
 
             # region: save
             time_measures["save_neighbors"] = time.time()
-            if not fast:
+            if not conf["fast"]:
                 queried.save_to_disk(output_neighbor_dataset)
             time_measures["save_neighbors"] = time.time() - time_measures["save_neighbors"]
             # endregion
@@ -594,7 +656,8 @@ if __name__ == "__main__":
         else:
             queried = None
 
-        del lsh
+        if not conf["fast"]:
+            del lsh
         gc.collect()
 
         if not input_duplicate_ids:
@@ -612,13 +675,13 @@ if __name__ == "__main__":
                 column=conf["column"],
                 input_graph=conf["input_graph"],
                 output_graph=conf["output_graph"],
-                fast=fast,
+                fast=conf["fast"],
             )
             time_measures["clustering"] = time.time() - time_measures["clustering"]
             # endregion
 
             # region: save
-            if not fast:
+            if not conf["fast"]:
                 time_measures["save_duplicate_ids"] = time.time()
                 with open(output_duplicate_ids, "w") as f:
                     json.dump(list(map(str, dup_ids)), f)
@@ -632,7 +695,8 @@ if __name__ == "__main__":
             time_measures["load_duplicate_ids"] = time.time() - time_measures["load_duplicate_ids"]
             # endregion
 
-        del queried
+        if not conf["fast"]:
+            del queried
         gc.collect()
 
         time_measures["total_processing_time"] = time.time() - start_time
@@ -650,7 +714,7 @@ if __name__ == "__main__":
         time_measures["deduplicate"] = time.time() - time_measures["deduplicate"]
 
         if "repository_name" in final_data.features and "path" in final_data.features:
-            if not fast:
+            if not conf["fast"]:
                 time_measures["save_unique_paths"] = time.time()
                 with open(output_unique_paths, "w") as f:
                     temp = final_data.map(
@@ -677,9 +741,12 @@ if __name__ == "__main__":
         logger.info(f"{'Language':<{PAD}}: {LAN}")
         logger.info(f"{'Data Number (before filtering)':<{PAD}}: {ORIGINAL_SIZE}")
         logger.info(f"{'Data Number (after filtering)':<{PAD}}: {DATA_SIZE}")
-        logger.info(f"{'Duplicate Number':<{PAD}}: {DUP_SIZE}")
-        logger.info(f"{'Duplicate Rate':<{PAD}}: {DUP_SIZE / DATA_SIZE:.2%}")
+        logger.info(f"{'Duplicate Number':<{PAD}}: {DUP_SIZE} ({DUP_SIZE / DATA_SIZE:.2%})")
+        logger.info(
+            f"{'Total Reduction':<{PAD}}: {DUP_SIZE + (ORIGINAL_SIZE - DATA_SIZE)} ({(DUP_SIZE + ORIGINAL_SIZE - DATA_SIZE) / ORIGINAL_SIZE:.2%})"
+        )
         logger.info(f"{'Total Time':<{PAD}}: {time.time() - start_time:.2f} seconds")
+        logger.info("*" * PAD * 2)
         logger.info(f"{'Output Base':<{PAD}}: {OUTPUT_BASE}")
         logger.info(f"{'Concatenated Dataset':<{PAD}}: {output_concat}")
         logger.info(f"{'Index':<{PAD}}: {output_index}")
@@ -688,7 +755,7 @@ if __name__ == "__main__":
         logger.info(f"{'Unique Paths':<{PAD}}: {output_unique_paths}")
         logger.info(f"{'Graph':<{PAD}}: {output_graph}")
         logger.info(f"{'Community':<{PAD}}: {output_community}")
-        logger.info(f"{'Output':<{PAD}}: {output}")
+        logger.info(f"{'Deduplicated Dataset':<{PAD}}: {output}")
         logger.info("🤗 Happy Deduplicating 🤗")
 
     typer.run(run)
