@@ -80,6 +80,10 @@ def filter(example):
         return False
     return True
 
+def get_size_nl(example):
+    size = len(example["content"])
+    return {"size": size}
+
 
 args = parseArgs()
 
@@ -88,6 +92,9 @@ t_start = time.time()
 print(f"Loading dataset {args.dataset_name}")
 dataset = load_dataset(args.dataset_name, data_dir=args.subset, split=args.split, use_auth_token=True)
 print(f"Time to load dataset: {time.time()-t_start:.2f}")
+
+dataset = dataset.map(get_size_nl)
+old_size_gb = sum(dataset["size"])
 
 # Run filtering
 t_start = time.time()
@@ -100,18 +107,13 @@ print(
     f"\nPercentage of removed files: {np.round((old_size - len(ds))*100/old_size, 2)}%"
 )
 
-
 print("\nCounting size in Gb of the new datase")
-new_size, old_size = 0, 0
-for i in tqdm(range(len(ds))):
-    new_size += len(ds[i]["content"])
+new_size_gb = sum(ds["size"])
 
-for i in tqdm(range(len(ds))):
-    old_size += len(ds[i]["content"])
+print(f"current size in Gb is {np.round(new_size_gb/10**9), 4}")
+print(f"old size in Gb is {np.round(old_size_gb/10**9, 4)}")
+print(f"volume removed: {np.round((old_size_gb-new_size_gb)*100/new_size_gb, 2)}%")
 
-print(f"current size in Gb is {np.round(new_size/10**9), 4}")
-print(f"old size in Gb is {np.round(old_size/10**9, 4)}")
-print(f"volume removed: {np.round((old_size-new_size)*100/new_size, 2)}%")
 
 if args.push_to_hub:
     print("\nPushing dataset to the Hub")
@@ -119,3 +121,4 @@ if args.push_to_hub:
 else:
     print(f"Saving the dataset in manual shards")
     save_manual_shards(ds, user=args.hub_username, remote_dataset_repo=args.remote_repo)
+print("Dataset successfully saved")
