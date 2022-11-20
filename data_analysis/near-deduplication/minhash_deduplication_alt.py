@@ -554,6 +554,7 @@ if __name__ == "__main__":
             revision=conf["revision"],
             lfs=conf["lfs"],
             concat_output=conf["concat_output"],
+            indexed_output=conf["indexed_output"],
             fast=conf["fast"],
             min_token_length=conf["min_token_length"],
         )
