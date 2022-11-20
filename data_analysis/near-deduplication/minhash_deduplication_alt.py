@@ -69,6 +69,7 @@ def load_dataset_with_config(
     revision: str,
     lfs: bool = False,
     concat_output: str | None = None,
+    indexed_output: str | None = None,
     fast: bool = False,
     min_token_length: int = 0,
 ) -> Dataset:
@@ -153,6 +154,8 @@ def load_dataset_with_config(
         batched=True,
         desc="Adding unique index...",
     )
+    if indexed_output and not fast:
+        ds.save_to_disk(indexed_output)
     # endregion
 
     return ds, original_length
@@ -496,6 +499,7 @@ if __name__ == "__main__":
         output_graph = output_graph or (OUTPUT_BASE / "graph.networkit")
         output_duplicate_ids = output_duplicate_ids or (OUTPUT_BASE / "duplicate_ids.json")
         output_concat = OUTPUT_BASE / "concat"
+        output_indexed = OUTPUT_BASE / "indexed"
         output_index = output_index or (OUTPUT_BASE / "index.pkl")
         output_unique_paths = OUTPUT_BASE / "unique_paths.json"
         output_community = OUTPUT_BASE / "community.partition"
@@ -525,6 +529,7 @@ if __name__ == "__main__":
             "lfs": lfs,
             "index_output": output_index,
             "concat_output": output_concat,
+            "indexed_output": output_indexed,
             "community_output": output_community,
             "report_false_positive_rate": report_false_positive_rate,
             "min_token_length": min_token_length,
@@ -741,6 +746,7 @@ if __name__ == "__main__":
         logger.info("*" * PAD * 2)
         logger.info(f"{'Output Base':<{PAD}}: {OUTPUT_BASE}")
         logger.info(f"{'Concatenated Dataset':<{PAD}}: {output_concat}")
+        logger.info(f"{'Indexed Dataset':<{PAD}}: {output_indexed}")
         logger.info(f"{'Index':<{PAD}}: {output_index}")
         logger.info(f"{'Neighbor Dataset':<{PAD}}: {output_neighbor_dataset}")
         logger.info(f"{'Duplicate IDs':<{PAD}}: {output_duplicate_ids}")
