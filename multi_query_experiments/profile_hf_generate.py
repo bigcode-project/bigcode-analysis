@@ -1,5 +1,6 @@
 import os
-os.environ['TRANSFORMERS_CACHE'] = '/home/toolkit/hf_transformers_cache'
+# we cache pretrained models in a user-writable dir (friendlier to SageMaker environments)
+os.environ['TRANSFORMERS_CACHE'] = os.environ['PWD'] + '/hf_transformers_cache'
 
 import torch
 import time
@@ -8,8 +9,20 @@ import transformers
 from transformers import GPT2Tokenizer, GPT2LMHeadModel, GPT2Config
 from transformers.models.gpt2.modeling_gpt2 import AttentionType
 
+def env(evar:str):
+    return os.environ[evar]
+
+def dev():
+    if torch.cuda.is_available():
+      return torch.device("cuda")
+    else:
+      return torch.device("cpu")
+
+
 print(transformers.__file__)
-print(torch.cuda.get_device_name(0))
+print(f'CUDA device : { torch.cuda.get_device_name(0) if torch.cuda.is_available() else None }')
+print(f'PWD : {env("PWD")}')
+print(f'transformers_cache : {env("TRANSFORMERS_CACHE")}')
 
 def get_test_batch(vocab_size, size, length, dtype=torch.int64, device=None):
     #TODO: eliminate special tokens, for now assumes the last one is the only special token
@@ -24,7 +37,8 @@ def generate_text_batch(model, inputs, max_length, num_beams=1, do_sample=False,
     )
 
 def decode_batch(tokenizer, outputs):
-    outputs = outputs.numpy().tolist()
+    # outputs = outputs.numpy().tolist()
+    outputs = outputs.tolist()
     return [
         tokenizer.decode(output)
         for output in outputs
@@ -32,7 +46,7 @@ def decode_batch(tokenizer, outputs):
 
 def time_generate(
     vocab_size, model, input_batch_size, input_batch_length, max_gen_length,
-    num_beams=1, do_sample=False, pad_token_id=50256, dtype=torch.int64, device=None
+    num_beams=1, do_sample=False, pad_token_id=50256, dtype=torch.int64, device=None, tokenizer=None
 ):
     stats = {}
 
@@ -45,6 +59,13 @@ def time_generate(
         model, inputs, max_gen_length, num_beams=num_beams, do_sample=do_sample, pad_token_id=pad_token_id
     )
     stats['generate_text_batch'] = time.time() - t1
+    
+    if do_sample:
+        t1 = time.time()
+        decs = decode_batch(tokenizer, outputs)
+        dt = time.time() - t1
+        stats['decode_batch'] = dt
+    
     stats['input_batch_size'] = input_batch_size
     stats['input_batch_length'] = input_batch_length
     stats['max_gen_length'] = max_gen_length
@@ -52,14 +73,12 @@ def time_generate(
     stats['do_sample'] = do_sample
     stats['pad_token_id'] = pad_token_id
     stats['dtype'] = dtype
-    stats['device'] = device
-    stats['cuda_device_name'] = torch.cuda.get_device_name(0)
 
     return inputs, outputs, stats
 
 def profile(attention_type):
-    tokenizer = GPT2Tokenizer.from_pretrained('gpt2')
-    
+    tokenizer = GPT2Tokenizer.from_pretrained('gpt2', cache_dir=os.environ['TRANSFORMERS_CACHE'])
+
     config = GPT2Config(
         vocab_size=len(tokenizer),
         n_layer=24,
@@ -72,19 +91,22 @@ def profile(attention_type):
         attention_type=attention_type,
         print_details=False
     )
-    model = GPT2LMHeadModel(config)
-    model = model.to(torch.device('cuda'))
-    
-    inputs = get_test_batch(tokenizer.vocab_size, 1, 4, device=torch.device('cuda'))
-    
-    print(f'-------------------- attention_type == {attention_type}---------------------')
-    
-    inputs, outputs, stats = time_generate(tokenizer.vocab_size, model, 8, 16, 1024, device=torch.device('cuda'))
+    model = GPT2LMHeadModel(config).to(dev())
+
+    inputs = get_test_batch(tokenizer.vocab_size, 1, 4, device=dev())
+
+    print(f'-------------------- attention_type == {attention_type} ---------------------')
+
+    inputs, outputs, stats = time_generate(tokenizer.vocab_size, model, 8, 16, 1024, device=dev(), tokenizer=tokenizer, do_sample=True)
     print(stats)
-    
-# warm up    
-profile(AttentionType.MULTI_QUERY)
+
+
+t0 = time.time()
+# # warm up
+# profile(AttentionType.MULTI_QUERY)
 
 profile(AttentionType.MULTI_QUERY)
 profile(AttentionType.MULTI_QUERY_1)
 profile(AttentionType.MULTI_HEAD)
+dt = time.time() - t0
+print(f'Total elapsed time : {dt} [s]')
