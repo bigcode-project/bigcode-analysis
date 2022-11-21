@@ -109,7 +109,7 @@ def load_dataset_with_config(
     """
 
     # Load from hub
-    if not lfs:
+    if not lfs and not os.path.exists(concat_output):
         ds = load_dataset(
             path,
             config,
