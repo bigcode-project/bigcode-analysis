@@ -10,9 +10,10 @@ In this folder we provide code for analysis of code datasets:
     * Detection of configuration and test files (valid for other languages than Python)
     * Estimation of the number of files that can be successfully compiled
 
-* PII Redaction 
+* PII Redaction: moved to [bigcode-dataset repository](https://github.com/bigcode-project/bigcode-dataset/tree/main/pii)
     * PII detection of emails, IP addresses and secret keys
     * PII anonymization
     * Pipeline evaluation on an annotated benchmark
 
-* Preprocessing: code for data filtering based on line length and percentage of alphanumeric characters.
+* Preprocessing:  moved to [bigcode-dataset repository](https://github.com/bigcode-project/bigcode-dataset/tree/main/preprocessing)
+   * code for data filtering based on line length and percentage of alphanumeric characters.
