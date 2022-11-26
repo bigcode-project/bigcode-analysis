@@ -459,6 +459,7 @@ if __name__ == "__main__":
         revision: str = typer.Option("main", help="Dataset revision"),
         column: str = typer.Option("content", help="Dataset column"),
         cache_dir: str = typer.Option(".cache", help="Cache directory"),
+        local_dir: str = typer.Option(None, help="Load from a local directory instead of downloading"),
         # MinHash parameters
         ngram_size: int = typer.Option(5, help="The ngram size to use for MinHash"),
         num_perm: int = typer.Option(256, help="Number of permutations"),
@@ -496,7 +497,7 @@ if __name__ == "__main__":
         output_neighbor_dataset = output_neighbor_dataset or (OUTPUT_BASE / "neighbors")
         output_graph = output_graph or (OUTPUT_BASE / "graph.networkit")
         output_duplicate_ids = output_duplicate_ids or (OUTPUT_BASE / "duplicate_ids.json")
-        output_concat = OUTPUT_BASE / "concat"
+        output_concat = OUTPUT_BASE / "concat" if local_dir is None else Path(local_dir)
         output_indexed = OUTPUT_BASE / "indexed"
         output_index = output_index or (OUTPUT_BASE / "index.pkl")
         output_unique_paths = OUTPUT_BASE / "unique_paths.json"
