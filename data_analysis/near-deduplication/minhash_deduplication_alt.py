@@ -15,6 +15,7 @@ import random
 import re
 import time
 import warnings
+from itertools import tee
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Set
 
@@ -26,7 +27,8 @@ import dill as pickle
 import networkit as nk
 import numpy as np
 import typer
-from datasets import Dataset, concatenate_datasets, load_dataset, load_from_disk
+from datasets import (Dataset, concatenate_datasets, load_dataset,
+                      load_from_disk)
 from datasketch import LeanMinHash, MinHash, MinHashLSH
 from rich.console import Console
 from rich.logging import RichHandler
@@ -57,6 +59,19 @@ nk.setLogLevel("ERROR")
 
 lsh: MinHashLSH | None = None
 dup_ids: Set[int] | None = None
+
+
+def ngrams(tokens, n: int = 1):
+    # modified from nltk ngrams
+    if n == 1:
+        return [(t,) for t in tokens]
+
+    iterables = tee(tokens, n)
+
+    for i, sub_iterable in enumerate(iterables):  # For each window,
+        for _ in range(i):  # iterate through every order of ngrams
+            next(sub_iterable, None)  # generate the ngrams within the window.
+    return zip(*iterables)  # Unpack and flattens the iterables.
 
 
 def load_dataset_with_config(
@@ -125,7 +140,7 @@ def load_dataset_with_config(
         datasets = []
         # In practice, it might stuck here, you can hit Ctrl+C and run it again.
         for file in tqdm(sorted(glob.glob(data_dir + "/*.jsonl")), desc="Loading datasets..."):
-            datasets.append(load_dataset("json", data_files=file, split=split,  cache_dir=cache_dir))
+            datasets.append(load_dataset("json", data_files=file, split=split, cache_dir=cache_dir))
         ds = concatenate_datasets(datasets)
         if not fast:
             ds.save_to_disk(concat_output)
@@ -161,7 +176,7 @@ def load_dataset_with_config(
     return ds, original_length
 
 
-def embed_func(idx: int, content: str, *, num_perm: int) -> Dict[str, Any]:
+def embed_func(idx: int, content: str, *, num_perm: int, ngram_size: int) -> Dict[str, Any]:
     """
     Embed the content of a record into a MinHash object. This function should be
     used with multiprocessing and it scales well with the number of cores.
@@ -174,8 +189,8 @@ def embed_func(idx: int, content: str, *, num_perm: int) -> Dict[str, Any]:
         The content of the record.
     num_perm : int
         The number of permutations to use in the MinHash object.
-    seed : int
-        The seed to use in the MinHash object.
+    ngram_size : int
+        The size of the ngrams to use in tokenization.
 
     Returns
     -------
@@ -193,7 +208,9 @@ def embed_func(idx: int, content: str, *, num_perm: int) -> Dict[str, Any]:
     dtype('uint64')
     """
     m = MinHash(num_perm=num_perm, seed=MINHASH_SEED)
-    m.update_batch([token.encode("utf-8") for token in {t for t in NON_ALPHA.split(content) if t}])
+    m.update_batch(
+        [token.encode("utf-8") for token in {" ".join(t) for t in ngrams(NON_ALPHA.split(content), ngram_size)}]
+    )
     return {"__signature__": m.hashvalues, "__id__": idx}
 
 
@@ -230,13 +247,16 @@ def query_func(idx: int, signature: np.ndarray, *, index: MinHashLSH) -> Dict[st
     {'__neighbors__': [0], '__id__': 1}
     """
     return {
-        "__neighbors__": [
-            dup_idx
-            for dup_idx in index.query(
-                LeanMinHash(seed=MINHASH_SEED, hashvalues=signature),
-            )
-            if dup_idx != idx  # exclude itself
-        ],
+        "__neighbors__": np.asarray(
+            [
+                dup_idx
+                for dup_idx in index.query(
+                    LeanMinHash(seed=MINHASH_SEED, hashvalues=signature),
+                )
+                if dup_idx != idx  # exclude itself
+            ],
+            dtype=np.int64,
+        ),
         "__id__": idx,
     }
 
@@ -301,13 +321,8 @@ def calculate_average_false_positive_rate(
 def find_duplicate_communities(
     records: Iterable | Dataset,
     output: str,
-    report_false_positive_rate: bool = False,
-    reference_records: Iterable | Dataset | None = None,
-    threshold: float = 0.85,
-    column: str = "content",
     input_graph: str | None = None,
     output_graph: str | None = None,
-    verbose: bool = False,
     fast: bool = False,
 ) -> Set[int]:
     """
@@ -321,20 +336,10 @@ def find_duplicate_communities(
         Whether to use community detection to find the duplicate communities, or to use the connected components.
     output : str
         The output file to save the duplicate communities.
-    report_false_positive_rate : bool
-        Whether to report the false positive rate.
-    reference_records : Iterable | Dataset | None
-        The reference records. It can be an iterable or a Dataset. It is only used when `report_false_positive_rate` is True.
-    threshold : float
-        The threshold to use for calculating the false positive rate. It is only used when `report_false_positive_rate` is True.
-    column : str
-        The column to use for calculating the false positive rate. It is only used when `report_false_positive_rate` is True.
     input_graph : str | None
         The input graph file to load the graph from.
     output_graph : str | None
         The output graph file to save the graph to.
-    verbose : bool
-        Whether to print verbose logs and false positive rate stats.
     fast : bool
         Whether to skip the saving step, by default False.
 
@@ -375,14 +380,6 @@ def find_duplicate_communities(
 
     if not fast:
         nk.graphio.PartitionWriter().write(partition, str(output))
-
-    if report_false_positive_rate and verbose:
-        calculate_average_false_positive_rate(
-            samples,
-            reference_records,
-            threshold,
-            column,
-        )
 
     return to_remove
 
@@ -463,6 +460,7 @@ if __name__ == "__main__":
         column: str = typer.Option("content", help="Dataset column"),
         cache_dir: str = typer.Option(".cache", help="Cache directory"),
         # MinHash parameters
+        ngram_size: int = typer.Option(5, help="The ngram size to use for MinHash"),
         num_perm: int = typer.Option(256, help="Number of permutations"),
         seed: int = typer.Option(42, help="Random seed"),
         threshold: float = typer.Option(0.85, help="Minhash threshold"),
@@ -509,6 +507,7 @@ if __name__ == "__main__":
             "cache_dir": cache_dir,
             "num_perm": num_perm,
             "seed": seed,
+            "ngram_size": ngram_size,
             "threshold": threshold,
             "dataset": dataset,
             "revision": revision,
@@ -568,7 +567,7 @@ if __name__ == "__main__":
             time_measures["embed"] = time.time()
             embedded = ds.map(
                 function=embed_func,
-                fn_kwargs={"num_perm": conf["num_perm"]},
+                fn_kwargs={"num_perm": conf["num_perm"], "ngram_size": conf["ngram_size"]},
                 input_columns=["__id__", conf["column"]],
                 remove_columns=[conf["column"]],
                 num_proc=os.cpu_count(),
@@ -626,7 +625,7 @@ if __name__ == "__main__":
             queried = embedded.map(
                 lambda x, y: query_func(x, y, index=lsh),
                 num_proc=os.cpu_count(),
-                new_fingerprint=hashlib.md5(pickle.dumps(conf)).hexdigest(),
+                new_fingerprint=hashlib.md5(pickle.dumps(conf | {"index_hash": hash(lsh)})).hexdigest(),
                 input_columns=["__id__", "__signature__"],
                 remove_columns=["__signature__"],
                 desc=f"Querying...",
@@ -667,10 +666,6 @@ if __name__ == "__main__":
             dup_ids = find_duplicate_communities(
                 records=queried,
                 output=conf["community_output"],
-                report_false_positive_rate=conf["report_false_positive_rate"],
-                reference_records=ds,
-                threshold=conf["threshold"],
-                column=conf["column"],
                 input_graph=conf["input_graph"],
                 output_graph=conf["output_graph"],
                 fast=conf["fast"],
