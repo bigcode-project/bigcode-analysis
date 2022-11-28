@@ -3,7 +3,6 @@
 import os
 import random
 import re
-from contextlib import redirect_stdout
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
@@ -12,12 +11,13 @@ import networkit as nk
 import numpy as np
 import pandas as pd
 from datasets import load_from_disk
-from datasets.utils.logging import set_verbosity_error
+from datasets.utils import disable_progress_bar
 from rich.console import Console
 from scipy.integrate import quad as integrate
 from tqdm import tqdm
 
-set_verbosity_error()
+
+disable_progress_bar()
 random.seed(42)
 np.random.seed(42)
 plt.style.use("science")
@@ -113,6 +113,7 @@ if __name__ == "__main__":
         sample_size: int = typer.Option(3_000, help="Number of sample clusters"),
         results_dir: str = typer.Option("results/codeparrot/codeparrot-clean-valid/default", help="Path to results"),
         output: str = typer.Option(None, help="Output plot file"),
+        alternative_graph: bool = typer.Option(False, help="Use alternative graph"),
     ):
         theoretical_results = [
             optimal_param(0.85, 256, 0.5, 0.5),
@@ -133,7 +134,8 @@ if __name__ == "__main__":
         )
 
         N = sample_size
-        thresholds = [60, 65, 70, 75, 80, 85]
+        # thresholds = [60, 65, 70, 75, 80, 85]
+        thresholds = [65, 85]
         scores = [[] for _ in thresholds]
         removed = [0 for _ in thresholds]
         pbar = tqdm(thresholds, desc="Iterating over thresholds")
@@ -141,7 +143,10 @@ if __name__ == "__main__":
         for pos, threshold in enumerate(pbar):
             BASE = f"{results_dir}/{threshold}"
             ds = load_from_disk(_directory_find("indexed", BASE))
-            g = nk.readGraph(_file_find("graph.networkit", BASE), nk.Format.NetworkitBinary)
+            if not alternative_graph:
+                g = nk.readGraph(_file_find("graph.networkit", BASE), nk.Format.NetworkitBinary)
+            else:
+                g = nk.readGraph(_file_find("alternative.networkit", BASE), nk.Format.NetworkitBinary)
 
             cc = nk.components.ConnectedComponents(g)
             cc.run()
@@ -159,17 +164,15 @@ if __name__ == "__main__":
                 component = components[idx]
                 S = len(component)
                 matrix = np.zeros((S, S))
-                with redirect_stdout(None):
-                    # Silence the output of the progress bar
-                    subset = ds.select(component, keep_in_memory=True)
-                    content = [
-                        set(tokens)
-                        for tokens in subset.map(
-                            lambda x: {"tokens": {t for t in NON_ALPHA.split(x["content"]) if t}},
-                            remove_columns=subset.column_names,
-                            num_proc=os.cpu_count(),
-                        )["tokens"]
-                    ]
+                subset = ds.select(component, keep_in_memory=True)
+                content = [
+                    set(tokens)
+                    for tokens in subset.map(
+                        lambda x: {"tokens": {t for t in NON_ALPHA.split(x["content"]) if t}},
+                        remove_columns=subset.column_names,
+                        num_proc=min(os.cpu_count(), S),
+                    )["tokens"]
+                ]
                 for i in tqdm(range(S), leave=False, desc="Computing Jaccard similarity"):
                     for j in range(i + 1, S):
                         matrix[i, j] = matrix[j, i] = set_jaccard_similarity(content[i], content[j])

@@ -27,8 +27,7 @@ import dill as pickle
 import networkit as nk
 import numpy as np
 import typer
-from datasets import (Dataset, concatenate_datasets, load_dataset,
-                      load_from_disk)
+from datasets import Dataset, concatenate_datasets, load_dataset, load_from_disk
 from datasketch import LeanMinHash, MinHash, MinHashLSH
 from rich.console import Console
 from rich.logging import RichHandler
@@ -62,9 +61,37 @@ dup_ids: Set[int] | None = None
 
 
 def ngrams(tokens, n: int = 1):
-    # modified from nltk ngrams
+    """
+    Modified version of nltk.ngrams without padding. See https://www.nltk.org/_modules/nltk/util.html#ngrams.
+
+    Parameters
+    ----------
+    tokens : Iterable[str]
+        The tokens to generate ngrams from.
+    n : int, optional
+        The size of the ngrams, by default 1
+
+    Yields
+    -------
+    Iterable[Tuple[str]]
+        The ngrams.
+
+    Examples
+    >>> list(ngrams([1,2,3,4,5], 2))
+    [(1, 2), (2, 3), (3, 4), (4, 5)]
+    >>> list(ngrams([1,2,3,4,5], 1))
+    [(1,), (2,), (3,), (4,), (5,)]
+    >>> list(ngrams([1,2,3,4,5], 6))
+    [(1, 2, 3, 4, 5)]
+    """
     if n == 1:
         return [(t,) for t in tokens]
+
+    if n > len(tokens):
+        return [tuple(tokens)]
+
+    if n <= 0:
+        raise ValueError("n must be greater than 0")
 
     iterables = tee(tokens, n)
 
@@ -83,8 +110,8 @@ def load_dataset_with_config(
     cache_dir: str,
     revision: str,
     lfs: bool = False,
-    concat_output: str | None = None,
-    indexed_output: str | None = None,
+    output_concat: str | None = None,
+    output_indexed: str | None = None,
     fast: bool = False,
     min_token_length: int = 0,
 ) -> Dataset:
@@ -110,7 +137,7 @@ def load_dataset_with_config(
         The revision of the dataset.
     lfs : bool
         Whether the dataset is from Git LFS.
-    concat_output : str | None
+    output_concat : str | None
         The path to the concatenated dataset to load or to save.
     fast : bool
         Whether skip the intermediate saving steps.
@@ -124,7 +151,7 @@ def load_dataset_with_config(
     """
 
     # Load from hub
-    if not lfs and not os.path.exists(concat_output):
+    if not lfs and not os.path.exists(output_concat):
         ds = load_dataset(
             path,
             config,
@@ -136,18 +163,18 @@ def load_dataset_with_config(
             num_proc=os.cpu_count(),  # 🎉 it is finally here! 🎉 Nov 18, 2022
         )
     # Or load from git lfs files, if there isn't a local concatenated dataset
-    elif concat_output and not os.path.exists(concat_output):
+    elif output_concat and not os.path.exists(output_concat):
         datasets = []
         # In practice, it might stuck here, you can hit Ctrl+C and run it again.
         for file in tqdm(sorted(glob.glob(data_dir + "/*.jsonl")), desc="Loading datasets..."):
             datasets.append(load_dataset("json", data_files=file, split=split, cache_dir=cache_dir))
         ds = concatenate_datasets(datasets)
         if not fast:
-            ds.save_to_disk(concat_output)
-            ds = load_from_disk(concat_output)
+            ds.save_to_disk(output_concat)
+            ds = load_from_disk(output_concat)
     # Or load from the concatenated dataset
-    elif concat_output:
-        ds = load_from_disk(concat_output)
+    elif output_concat:
+        ds = load_from_disk(output_concat)
     else:
         raise ValueError("No dataset to load.")
 
@@ -169,8 +196,8 @@ def load_dataset_with_config(
         batched=True,
         desc="Adding unique index...",
     )
-    if indexed_output and not fast:
-        ds.save_to_disk(indexed_output)
+    if output_indexed and not fast:
+        ds.save_to_disk(output_indexed)
     # endregion
 
     return ds, original_length
@@ -478,10 +505,6 @@ if __name__ == "__main__":
         lfs: bool = typer.Option(False, help="Use LFS files"),
         # Preprocessing parameters
         min_token_length: int = typer.Option(10, help="Minimum token length"),
-        # Postprocessing parameters
-        report_false_positive_rate: bool = typer.Option(
-            False, "--report-false-positive-rate", help="Report false positive rate based on random samples"
-        ),
         # Misc parameters
         verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose logging"),
         fast: bool = typer.Option(False, help="Skipping any intermediate saving"),
@@ -527,11 +550,10 @@ if __name__ == "__main__":
             "output_duplicate_ids": output_duplicate_ids,
             "output": output,
             "lfs": lfs,
-            "index_output": output_index,
-            "concat_output": output_concat,
-            "indexed_output": output_indexed,
-            "community_output": output_community,
-            "report_false_positive_rate": report_false_positive_rate,
+            "output_index": output_index,
+            "output_concat": output_concat,
+            "output_indexed": output_indexed,
+            "output_community": output_community,
             "min_token_length": min_token_length,
             "fast": fast,
         }
@@ -553,8 +575,8 @@ if __name__ == "__main__":
             cache_dir=conf["cache_dir"],
             revision=conf["revision"],
             lfs=conf["lfs"],
-            concat_output=conf["concat_output"],
-            indexed_output=conf["indexed_output"],
+            output_concat=conf["output_concat"],
+            output_indexed=conf["output_indexed"],
             fast=conf["fast"],
             min_token_length=conf["min_token_length"],
         )
@@ -666,7 +688,7 @@ if __name__ == "__main__":
             )
             dup_ids = find_duplicate_communities(
                 records=queried,
-                output=conf["community_output"],
+                output=conf["output_community"],
                 input_graph=conf["input_graph"],
                 output_graph=conf["output_graph"],
                 fast=conf["fast"],
