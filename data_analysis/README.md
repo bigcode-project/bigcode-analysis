@@ -17,3 +17,7 @@ In this folder we provide code for analysis of code datasets:
 
 * Preprocessing:  moved to [bigcode-dataset repository](https://github.com/bigcode-project/bigcode-dataset/tree/main/preprocessing)
    * code for data filtering based on line length and percentage of alphanumeric characters.
+
+* Comment to code ratio analysis
+
+* Filtering based on stars analysis
