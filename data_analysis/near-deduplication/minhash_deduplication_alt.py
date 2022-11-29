@@ -27,7 +27,8 @@ import dill as pickle
 import networkit as nk
 import numpy as np
 import typer
-from datasets import Dataset, concatenate_datasets, load_dataset, load_from_disk
+from datasets import (Dataset, concatenate_datasets, load_dataset,
+                      load_from_disk)
 from datasketch import LeanMinHash, MinHash, MinHashLSH
 from rich.console import Console
 from rich.logging import RichHandler

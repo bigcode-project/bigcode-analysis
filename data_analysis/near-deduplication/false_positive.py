@@ -1,23 +1,26 @@
 #!/usr/bin/env python
-# coding: utf-8
+# -*- coding: utf-8 -*-
+# @Date    : 2022-11-28 19:35:07
+# @Author  : Chenghao Mou (mouchenghao@gmail.com)
 import os
 import random
 import re
 
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
-import scienceplots  # This is needed
 import networkit as nk
 import numpy as np
 import pandas as pd
+import scienceplots  # This is needed
+import datasets
 from datasets import load_from_disk
 from datasets.utils import disable_progress_bar
 from rich.console import Console
 from scipy.integrate import quad as integrate
 from tqdm import tqdm
 
-
 disable_progress_bar()
+datasets.logging.set_verbosity_error()
 random.seed(42)
 np.random.seed(42)
 plt.style.use("science")
@@ -134,8 +137,7 @@ if __name__ == "__main__":
         )
 
         N = sample_size
-        # thresholds = [60, 65, 70, 75, 80, 85]
-        thresholds = [65, 85]
+        thresholds = list(map(int, (d for d in os.listdir(results_dir) if d.isdigit())))
         scores = [[] for _ in thresholds]
         removed = [0 for _ in thresholds]
         pbar = tqdm(thresholds, desc="Iterating over thresholds")

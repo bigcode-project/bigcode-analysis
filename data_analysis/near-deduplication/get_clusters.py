@@ -1,16 +1,25 @@
 #!/usr/bin/env python
-# coding: utf-8
-# this script replicate `minhash_deduplication.py` for the clustering part.
+# -*- coding: utf-8 -*-
+# @Date         : 2022-11-28 19:33:50
+# @Author       : Chenghao Mou (mouchenghao@gmail.com)
+# @Description  : This script replicate `minhash_deduplication.py` for the clustering part.
+import os
+
 import multiprocessing as mp
 import os
 
+import typer
 import networkit as nk
+import datasets
+from datasets import load_from_disk
 from dpu_utils.utils.iterators import ThreadedIterator
 from tqdm import tqdm
 
-from minhash_deduplication_alt import ngrams
 from minhash_deduplication import CONTENT, NON_ALPHA, DuplicationIndex, get_min_hash, minhash_iter
+from minhash_deduplication_alt import ngrams
+
 NGRAM_SIZE = 1
+datasets.logging.set_verbosity_error()
 
 def _compute_min_hash(element):
     index, data = element
@@ -58,10 +67,6 @@ def _directory_find(goal, root="."):
 
 
 if __name__ == "__main__":
-
-    from datasets import load_from_disk
-
-    import typer
 
     def run(
         dataset_root: str = typer.Option(..., help="Dataset name"),

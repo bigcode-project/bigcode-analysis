@@ -9,3 +9,4 @@ dill>=0.3.5.1
 # for analyze.py
 SciencePlots>=2.0.0
 matplotlib>=3.6.2
+dpu-utils>=0.6.1
