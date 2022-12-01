@@ -150,7 +150,7 @@ if __name__ == "__main__":
             )
         )
 
-        thresholds = list(map(int, (d for d in os.listdir(results_dir) if d.isdigit())))
+        thresholds = sorted(list(map(int, (d for d in os.listdir(results_dir) if d.isdigit()))))
         sample_scores = [[] for _ in thresholds]
         removed = [0 for _ in thresholds]
         pbar = tqdm(thresholds, desc="Iterating over thresholds")
