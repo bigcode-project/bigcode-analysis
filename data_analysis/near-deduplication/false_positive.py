@@ -16,6 +16,7 @@ import datasets
 from datasets import load_from_disk
 from datasets.utils import disable_progress_bar
 from rich.console import Console
+from rich.table import Table
 from scipy.integrate import quad as integrate
 from tqdm import tqdm
 
@@ -108,13 +109,24 @@ def _file_find(goal, root="."):
     raise FileNotFoundError(f"Could not find {goal} in {root}")
 
 
+def dataframe2table(df, **kwargs):
+
+    table = Table(**kwargs)
+    for col in df.columns:
+        table.add_column(col)
+    for _, row in df.iterrows():
+        table.add_row(*list(map(str, row)))
+    return table
+
+
 if __name__ == "__main__":
 
     import typer
 
     def run(
-        sample_size: int = typer.Option(3_000, help="Number of sample clusters"),
-        results_dir: str = typer.Option("results/codeparrot/codeparrot-clean-valid/default", help="Path to results"),
+        sample_size: int = typer.Option(3_000, help="Number of sample clusters, if no scores are provided"),
+        results_dir: str = typer.Option("results/codeparrot/codeparrot-clean-valid/default", help="Path to results directory"),
+        score_matrix: str = typer.Option("python.scores", help="Path to similarity score matrix"),
         output: str = typer.Option(None, help="Output plot file"),
         alternative_graph: bool = typer.Option(False, help="Use alternative graph"),
     ):
@@ -130,21 +142,35 @@ if __name__ == "__main__":
         ]
 
         console.print(
-            pd.DataFrame(
-                theoretical_results,
-                columns=["𝐛", "𝐫", "threshold", "num_perm", "FP", "FN", "𝛼", "𝛽"],
+            dataframe2table(
+                pd.DataFrame(
+                    theoretical_results,
+                    columns=["𝐛", "𝐫", "threshold", "num_perm", "FP", "FN", "𝛼", "𝛽"],
+                )
             )
         )
 
-        N = sample_size
         thresholds = list(map(int, (d for d in os.listdir(results_dir) if d.isdigit())))
-        scores = [[] for _ in thresholds]
+        sample_scores = [[] for _ in thresholds]
         removed = [0 for _ in thresholds]
         pbar = tqdm(thresholds, desc="Iterating over thresholds")
+
+        if os.path.exists(score_matrix):
+            with open(score_matrix, "rb") as f:
+                scores = np.load(f)
+                maximums = scores.max(axis=1)
+        else:
+            scores = None
+            maximums = None
+
+        table_cells = []
+        table_columns = [f'{threshold/100:.02f}' for threshold in thresholds]
+        table_rows = ["TP", "FP", "FN", "Precision", "Recall", "Recall\@80", "Recall\@85", "F1", "F0.5", "F0.2"]
 
         for pos, threshold in enumerate(pbar):
             BASE = f"{results_dir}/{threshold}"
             ds = load_from_disk(_directory_find("indexed", BASE))
+            console.print(f"Loaded {len(ds)} samples from {BASE}")
             if not alternative_graph:
                 g = nk.readGraph(_file_find("graph.networkit", BASE), nk.Format.NetworkitBinary)
             else:
@@ -158,30 +184,73 @@ if __name__ == "__main__":
             removed[pos] += sum(map(len, components)) - M
             pbar.set_description(f"Threshold: {threshold}, #components: {M}, #removed: {sum(map(len, components)) - M}")
 
+            N = sample_size if scores is None else len(ds)
+            sample_ids = random.sample(range(M), min(N, M)) if scores is None else range(M)
+
             for idx in tqdm(
-                random.sample(range(M), min(N, M)),
+                sample_ids,
                 leave=False,
                 desc="Iterating over components",
             ):
                 component = components[idx]
                 S = len(component)
-                matrix = np.zeros((S, S))
-                subset = ds.select(component, keep_in_memory=True)
-                content = [
-                    set(tokens)
-                    for tokens in subset.map(
-                        lambda x: {"tokens": {t for t in NON_ALPHA.split(x["content"]) if t}},
-                        remove_columns=subset.column_names,
-                        num_proc=min(os.cpu_count(), S),
-                    )["tokens"]
-                ]
-                for i in tqdm(range(S), leave=False, desc="Computing Jaccard similarity"):
-                    for j in range(i + 1, S):
-                        matrix[i, j] = matrix[j, i] = set_jaccard_similarity(content[i], content[j])
-                scores[pos].extend(matrix.max(axis=1))
+                if scores is None:
+                    matrix = np.zeros((S, S))
+                    subset = ds.select(component, keep_in_memory=True)
+                    content = [
+                        set(tokens)
+                        for tokens in subset.map(
+                            lambda x: {"tokens": {t for t in NON_ALPHA.split(x["content"]) if t}},
+                            remove_columns=subset.column_names,
+                            num_proc=min(os.cpu_count(), S),
+                        )["tokens"]
+                    ]
+                    for i in tqdm(range(S), leave=False, desc="Computing Jaccard similarity"):
+                        for j in range(i + 1, S):
+                            matrix[i, j] = matrix[j, i] = set_jaccard_similarity(content[i], content[j])
+                else:
+                    matrix = scores[component][:, component]
+                sample_scores[pos].extend(matrix.max(axis=1))
+            
+            if scores is not None:
 
-        _, ax = plt.subplots(figsize=(10, 5))
-        ax.violinplot(scores, quantiles=[[0.25, 0.5, 0.75] for _ in scores])
+                curr_scores = np.asarray(sample_scores[pos])
+                tp = np.sum(curr_scores >= threshold / 100)
+                fp = len(curr_scores) - tp
+                fn = np.sum(maximums >= threshold / 100) - tp
+                precision = tp / (tp + fp)
+                recall = tp / (tp + fn)
+                
+                tp_80 = np.sum(curr_scores >= 0.8)
+                fp_80 = len(curr_scores) - tp_80
+                fn_80 = np.sum(maximums >= 0.8) - tp_80
+                recall_80 = tp_80 / (tp_80 + fn_80)
+
+                tp_85 = np.sum(curr_scores >= 0.85)
+                fp_85 = len(curr_scores) - tp_85
+                fn_85 = np.sum(maximums >= 0.85) - tp_85
+                recall_85 = tp_85 / (tp_85 + fn_85)
+
+                f1 = 2 * precision * recall / (precision + recall)
+                f05 = (1 + 0.5 ** 2) * precision * recall / (0.5 ** 2 * precision + recall)
+                f02 = (1 + 0.2 ** 2) * precision * recall / (0.2 ** 2 * precision + recall)
+                table_cells.append([
+                    f"{tp:,}",
+                    f"{fp:,}",
+                    f"{fn:,}",
+                    f"{precision:.02%}",
+                    f"{recall:.02%}",
+                    f"{recall_80:.02%}",
+                    f"{recall_85:.02%}",
+                    f"{f1:.02%}",
+                    f"{f05:.02%}",
+                    f"{f02:.02%}",
+                ])
+
+
+        table_cells = list(map(list, zip(*table_cells)))
+        _, ax = plt.subplots(figsize=(10, 6))
+        ax.violinplot(sample_scores, quantiles=[[0.25, 0.5, 0.75] for _ in sample_scores])
         ax.hlines(
             [x / 100 for x in thresholds],
             [i - 0.2 for i, x in enumerate(thresholds, 1)],
@@ -189,7 +258,7 @@ if __name__ == "__main__":
             colors=["red"],
             linestyles="dashed",
         )
-        for i, s in enumerate(scores):
+        for i, s in enumerate(sample_scores):
             s = np.asarray(s)
             draw_brace(
                 ax,
@@ -197,9 +266,22 @@ if __name__ == "__main__":
                 i + 1.1,
                 f"{len(s[s < (thresholds[i] / 100)])/len(s) * 100:.2f}\%",
             )
-        ax.set_xlim(0, 7)
-        positions = list(range(8))
-        labels = ["0.55"] + [f"{x / 100}\n({len(scores[i])}|{removed[i]})" for i, x in enumerate(thresholds)]
+        
+        # draw the table
+        if scores is not None:
+            t = ax.table(
+                cellText=[[f"{cell}" for cell in row] for row in table_cells],
+                rowLabels=table_rows,
+                colLabels=table_columns,
+                loc='bottom',
+                edges='horizontal',
+                bbox=[0.1, -0.70, 0.8, 0.5]
+            )
+            ax.axis('tight')
+        plt.tight_layout(rect=[0.11, 0.7, 0.95, 0.95])
+        ax.set_xlim(0, len(thresholds) + 1)
+        positions = list(range(len(thresholds) + 1))
+        labels = ["0.55"] + [f"{x / 100}\n({len(sample_scores[i])}|{removed[i]})" for i, x in enumerate(thresholds)]
         ax.xaxis.set_major_locator(ticker.FixedLocator(positions))
         ax.xaxis.set_major_formatter(ticker.FixedFormatter(labels))
 

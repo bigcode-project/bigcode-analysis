@@ -3,5 +3,4 @@ results
 *json
 minhash_deduplication_alt_streaming.py
 dump.rdb
-temp*
 data
