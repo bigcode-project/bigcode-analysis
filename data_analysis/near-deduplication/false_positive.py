@@ -156,9 +156,9 @@ if __name__ == "__main__":
         pbar = tqdm(thresholds, desc="Iterating over thresholds")
 
         if os.path.exists(score_matrix):
-            with open(score_matrix, "rb") as f:
-                scores = np.load(f)
-                maximums = scores.max(axis=1)
+            scores = np.fromfile(score_matrix, dtype=np.float16)
+            scores = scores.reshape((200_000, 200_000))
+            maximums = scores.max(axis=1)
         else:
             scores = None
             maximums = None
@@ -262,7 +262,7 @@ if __name__ == "__main__":
             s = np.asarray(s)
             draw_brace(
                 ax,
-                [min(s) + 0.01, thresholds[i] / 100],
+                [min(s) + 0.01, thresholds[i]/ 100],
                 i + 1.1,
                 f"{len(s[s < (thresholds[i] / 100)])/len(s) * 100:.2f}\%",
             )
