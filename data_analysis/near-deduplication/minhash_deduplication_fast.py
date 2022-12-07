@@ -5,7 +5,7 @@
 import glob
 import os
 import time
-from typing import List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import dask.dataframe as dd
 import pyarrow as pa
@@ -17,31 +17,30 @@ from loguru import logger
 from nltk import ngrams
 from tqdm import tqdm
 
-# TODO There are always some pending tasks at the end. I cannot find a way to solve it.
-
 NON_ALPHA = regex.compile("[^A-Za-z_0-9]")
 INDEX = "__id__"
 CLUSTER = "__cluster__"
 
 
 def compuate_minhash(
-    record,
-    hashranges: List[Tuple[int]],
+    record: Dict[str, Any],
+    hashranges: List[Tuple[int, int]],
     ngram_size: int,
     num_perm: int,
     seed: int,
+    column: str,
 ) -> List:
-    idx, content = record
+    idx, content = record[INDEX], record[column]
     m = MinHash(num_perm=num_perm, seed=seed)
-    tokens = NON_ALPHA.split(content)
-    m.update_batch([token.encode("utf-8") for token in {" ".join(t) for t in ngrams(tokens, ngram_size)}])
+    tokens = {" ".join(t) for t in ngrams(NON_ALPHA.split(content), ngram_size)}
+    m.update_batch([token.encode("utf-8") for token in tokens])
     Hs = [bytes(m.hashvalues[start:end].byteswap().data) for start, end in hashranges]
     return idx, Hs
 
 
 class UnionFind:
     def __init__(self):
-        self.parent = {}
+        self.parent: Dict[int, int] = {}
 
     def find(self, x):
         if x not in self.parent:
@@ -69,20 +68,22 @@ if __name__ == "__main__":
         start_time = time.time()
         lsh = MinHashLSH(threshold=threshold, num_perm=num_perm)
         uf = UnionFind()
-        client = Client(n_workers=os.cpu_count(), threads_per_worker=2, memory_limit="60GB", asynchronous=False)
+
         df = dd.read_parquet(glob.glob(input_files)).repartition(npartitions=os.cpu_count())
+        logger.info(f"Dataset size before deduplication: {len(df):,}")
         df[INDEX] = df.assign(partition_count=1).partition_count.cumsum()
         df = df.persist()
-        results = df[[INDEX, column]].apply(
+        results = df.apply(
             compuate_minhash,
             hashranges=lsh.hashranges,
             ngram_size=ngram_size,
             num_perm=num_perm,
             seed=seed,
+            column=column,
             axis=1,
             meta=(None, "object"),
         )
-        minhashes = results.compute(allow_other_workers=True, schedule="processes", sync=True)
+        minhashes = results.compute(schedule="processes", sync=True)
         for key, Hs in tqdm(minhashes, total=len(minhashes), ascii=True):
             for H, hashtable in zip(Hs, lsh.hashtables):
                 for candidate in hashtable.get(H):
@@ -91,10 +92,9 @@ if __name__ == "__main__":
             for H, hashtable in zip(Hs, lsh.hashtables):
                 hashtable.insert(H, key, buffer=False)
         df[CLUSTER] = df[INDEX].apply(uf.find, meta=(CLUSTER, "int64"))
-        df = df.drop(columns=[INDEX])
         df = df.drop_duplicates(subset=[CLUSTER], keep="first", ignore_index=True)
-        df = df.drop(columns=[CLUSTER])
-        df = df.repartition(npartitions=num_partitions).persist()
+        df = df.drop(columns=[INDEX, CLUSTER])
+        df = df.repartition(npartitions=num_partitions)
         logger.info(f"Dataset size after deduplication: {len(df):,}")
         df.to_parquet(
             output,
@@ -108,4 +108,5 @@ if __name__ == "__main__":
         )
         logger.info(f"Total time: {time.time() - start_time:.2f}s")
 
+    client = Client(n_workers=os.cpu_count(), threads_per_worker=2, memory_limit="20GB", asynchronous=False)
     typer.run(run)
