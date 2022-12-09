@@ -115,7 +115,7 @@ if __name__ == "__main__":
                 "ngram_size": ngram_size,
             },
             input_columns=[column],
-            remove_columns=[column],
+            remove_columns=ds.column_names,
             num_proc=os.cpu_count(),
             with_indices=True,
             desc=f"Fingerprinting...",
@@ -125,7 +125,7 @@ if __name__ == "__main__":
         # TODO: if one day, the map function supports async mode, we can use it to speed up the following step
         time_measures["clustering"] = time.time()
         uf = UnionFind()
-        for record in tqdm(embedded, total=len(embedded), ascii=True):
+        for record in tqdm(embedded, dynamic_ncols=True, desc="Clustering..."):
             key = record["__id__"]
             Hs = record["__signatures__"]
             for H, hashtable in zip(Hs, lsh.hashtables):
@@ -143,6 +143,9 @@ if __name__ == "__main__":
             num_proc=os.cpu_count(),
             desc="Finding clusters...",
         )
+        # This is where the deduplication happens
+        # Since there is no easy groupby in datasets
+        # I will use this simple filter for now
         final_data = ds.filter(
             function=lambda record, idx: record["__cluster__"] == idx,
             with_indices=True,
