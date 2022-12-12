@@ -1,5 +1,2 @@
-datasketch>=1.5.8
-rich>=12.6.0
 datasets>=2.5.1
 typer>=0.6.1
-nltk>=3.7
