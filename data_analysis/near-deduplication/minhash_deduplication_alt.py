@@ -3,10 +3,12 @@
 # author      : Chenghao Mou (mouchenghao@gmail.com)
 # created     : 10/4/22
 from __future__ import annotations
+import gc
 
 import hashlib
 import logging
 import os
+import random
 import re
 import struct
 import time
@@ -286,12 +288,17 @@ if __name__ == "__main__":
         time_measures["clustering"] = time.time() - time_measures["clustering"]
 
         time_measures["filtering"] = time.time()
+        gc.freeze()
+        gc.disable()
         ds = ds.map(
             function=lambda _, idx: {"__cluster__": uf.find(idx)},
             with_indices=True,
             num_proc=os.cpu_count(),
+            new_fingerprint=str(random.getrandbits(128)),
             desc="Finding clusters...",
         )
+        gc.enable()
+        gc.collect()
         # This is where the deduplication happens
         # Since there is no easy groupby in datasets
         # I will use this simple filter for now
