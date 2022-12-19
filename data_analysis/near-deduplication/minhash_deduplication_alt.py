@@ -11,6 +11,7 @@ import re
 import struct
 import time
 import warnings
+import multiprocessing as mp
 from collections import defaultdict
 from itertools import tee
 from pathlib import Path
@@ -112,16 +113,19 @@ def embed_func(
     """
     hashvalues = np.ones(num_perm, dtype=np.uint64) * MAX_HASH
     tokens = {" ".join(t) for t in ngrams(NON_ALPHA.split(content), ngram_size)}
-    hv = np.array([sha1_hash32(token.encode("utf-8")) for token in tokens], dtype=np.uint64)
+    hv = np.array([sha1_hash32(token.encode("utf-8")) for token in tokens], dtype=np.uint64)  # noqa: E501
     a, b = permutations
-    phv = np.bitwise_and(((hv * np.tile(a, (len(hv), 1)).T).T + b) % MERSENNE_PRIME, MAX_HASH)
+    phv = np.bitwise_and(((hv * np.tile(a, (len(hv), 1)).T).T + b) % MERSENNE_PRIME, MAX_HASH)  # noqa: E501
     hashvalues = np.vstack([phv, hashvalues]).min(axis=0)
     Hs = [bytes(hashvalues[start:end].byteswap().data) for start, end in hashranges]
     return {"__signatures__": Hs, "__id__": idx}
 
 
 def optimal_param(
-    threshold: float, num_perm: int, false_positive_weight: float = 0.5, false_negative_weight: float = 0.5
+    threshold: float,
+    num_perm: int,
+    false_positive_weight: float = 0.5,
+    false_negative_weight: float = 0.5,
 ):
     """
     Compute the optimal `MinHashLSH` parameter that minimizes the weighted sum
@@ -146,13 +150,19 @@ def optimal_param(
 
     def false_positive_probability(threshold: float, b: int, r: int):
         """Source: `datasketch.lsh`"""
-        proba = lambda s: 1 - (1 - s ** float(r)) ** float(b)
+
+        def proba(s):
+            return 1 - (1 - s ** float(r)) ** float(b)
+
         a, _ = integrate(proba, 0.0, threshold)
         return a
 
     def false_negative_probability(threshold: float, b: int, r: int):
         """Source: `datasketch.lsh`"""
-        proba = lambda s: 1 - (1 - (1 - s ** float(r)) ** float(b))
+
+        def proba(s):
+            return 1 - (1 - (1 - s ** float(r)) ** float(b))
+
         a, _ = integrate(proba, threshold, 1.0)
         return a
 
@@ -190,7 +200,7 @@ class UnionFind:
 if __name__ == "__main__":
 
     def run(
-        dataset: str = typer.Option("codeparrot/codeparrot-clean-valid", help="The dataset to use"),
+        dataset: str = typer.Option("codeparrot/codeparrot-clean-valid", help="The dataset to use"),  # noqa: E501
         config: str = typer.Option("default", help="Dataset config"),
         split: str = typer.Option("train", help="Dataset split"),
         data_dir: str = typer.Option(None, help="Dataset data directory"),
@@ -202,6 +212,7 @@ if __name__ == "__main__":
         threshold: float = typer.Option(0.85, help="Minhash threshold"),
         output: str = typer.Option(None, help="Store the deduplicated dataset"),
     ):
+        global uf
         OUTPUT_BASE = Path(output or "output")
         OUTPUT_BASE.mkdir(exist_ok=True, parents=True)
         output = OUTPUT_BASE / "deduplicated"
@@ -230,7 +241,10 @@ if __name__ == "__main__":
         DATA_SIZE = len(ds)
         PERMUTATIONS = np.array(
             [
-                (RNG.randint(1, MERSENNE_PRIME, dtype=np.uint64), RNG.randint(0, MERSENNE_PRIME, dtype=np.uint64))
+                (
+                    RNG.randint(1, MERSENNE_PRIME, dtype=np.uint64),
+                    RNG.randint(0, MERSENNE_PRIME, dtype=np.uint64),
+                )
                 for _ in range(num_perm)
             ],
             dtype=np.uint64,
@@ -241,7 +255,6 @@ if __name__ == "__main__":
             function=embed_func,
             fn_kwargs={
                 "num_perm": num_perm,
-                "ngram_size": num_perm,
                 "hashranges": HASH_RANGES,
                 "ngram_size": ngram_size,
                 "permutations": PERMUTATIONS,
@@ -250,21 +263,26 @@ if __name__ == "__main__":
             remove_columns=ds.column_names,
             num_proc=os.cpu_count(),
             with_indices=True,
-            desc=f"Fingerprinting...",
+            desc="Fingerprinting...",
         )
         time_measures["minhash"] = time.time() - time_measures["minhash"]
 
-        # This is a greedy algorithm
         time_measures["clustering"] = time.time()
-        uf = UnionFind()
-        for record in tqdm(embedded, dynamic_ncols=True, desc="Clustering..."):
-            key = record["__id__"]
-            Hs = record["__signatures__"]
-            for H, hashtable in zip(Hs, HASH_TABLES):
-                for candidate in hashtable[H]:
-                    uf.union(candidate, key)
-            for H, hashtable in zip(Hs, HASH_TABLES):
-                hashtable[H].add(key)
+        batch_size: int = 10000
+        for i in tqdm(
+            range(0, len(embedded), batch_size), dynamic_ncols=True, desc="Iterating MinHashes..."  # noqa: E501
+        ):
+            batch = embedded[i : i + batch_size]
+            for key, Hs in zip(batch["__id__"], batch["__signatures__"]):
+                for H, hashtable in zip(Hs, HASH_TABLES):
+                    hashtable[H].add(key)
+        for table in tqdm(HASH_TABLES, dynamic_ncols=True, desc="Clustering..."):
+            for cluster in table.values():
+                if len(cluster) <= 1:
+                    continue
+                idx = min(cluster)
+                for x in cluster:
+                    uf.union(x, idx)
         time_measures["clustering"] = time.time() - time_measures["clustering"]
 
         time_measures["filtering"] = time.time()
@@ -297,10 +315,14 @@ if __name__ == "__main__":
         for key, value in time_measures.items():
             logger.info(f"{key:<{PAD}}: {value:.2f} seconds")
         logger.info(f"{'Data Number (before)':<{PAD}}: {DATA_SIZE}")
-        logger.info(f"{'Data Number (after)':<{PAD}}: {FINAL_DATA_SIZE} ({FINAL_DATA_SIZE / DATA_SIZE:.2%})")
-        logger.info(f"{'Duplicate Number':<{PAD}}: {DUP_SIZE} ({DUP_SIZE / DATA_SIZE:.2%})")
+        logger.info(
+            f"{'Data Number (after)':<{PAD}}: {FINAL_DATA_SIZE} ({FINAL_DATA_SIZE / DATA_SIZE:.2%})"  # noqa: E501
+        )
+        logger.info(f"{'Duplicate Number':<{PAD}}: {DUP_SIZE} ({DUP_SIZE / DATA_SIZE:.2%})")  # noqa: E501
         logger.info(f"{'Total Time':<{PAD}}: {time.time() - start_time:.2f} seconds")
         logger.info(f"{'Deduplicated Dataset':<{PAD}}: {output}")
         logger.info("🤗 Happy Deduplicating 🤗")
 
+    mp.set_start_method("fork", force=True)
+    uf = UnionFind()
     typer.run(run)
