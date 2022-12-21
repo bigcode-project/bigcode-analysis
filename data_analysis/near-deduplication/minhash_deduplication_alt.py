@@ -3,17 +3,17 @@
 # author      : Chenghao Mou (mouchenghao@gmail.com)
 # created     : 10/4/22
 from __future__ import annotations
-import gc
 
+import gc
 import hashlib
 import logging
+import multiprocessing as mp
 import os
 import random
 import re
 import struct
 import time
 import warnings
-import multiprocessing as mp
 from collections import defaultdict
 from itertools import tee
 from pathlib import Path
@@ -211,7 +211,7 @@ if __name__ == "__main__":
         cache_dir: str = typer.Option(".cache", help="Cache directory"),
         ngram_size: int = typer.Option(5, help="The ngram size to use for MinHash"),
         num_perm: int = typer.Option(256, help="Number of permutations"),
-        threshold: float = typer.Option(0.85, help="Minhash threshold"),
+        threshold: float = typer.Option(0.7, help="Minhash threshold"),
         output: str = typer.Option(None, help="Store the deduplicated dataset"),
     ):
         global uf
