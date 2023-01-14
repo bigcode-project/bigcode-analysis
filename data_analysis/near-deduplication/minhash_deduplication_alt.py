@@ -91,7 +91,7 @@ def embed_func(
     permutations: np.ndarray,
 ) -> Dict[str, Any]:
     """
-    Combined with some datasketch code to avoid dependency.
+    Combined with some datasketch code to better parallelize computation.
 
     Parameters
     ----------
@@ -148,6 +148,7 @@ def optimal_param(
     -------
     Tuple[int, int]
         The optimal `b` and `r` parameters.
+        The number of bands, and the number of rows per band respectively.
     """
 
     def false_positive_probability(threshold: float, b: int, r: int):
