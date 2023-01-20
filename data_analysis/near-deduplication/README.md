@@ -78,40 +78,38 @@ python minhash_deduplication_alt.py --dataset bigcode/the-stack-dedup-pjj --data
 
 Java Results as of Dec 20, 2022
 ```
-INFO:__main__:load_dataset                    : 3414.68 seconds
-INFO:__main__:minhash                         : 22966.13 seconds
-INFO:__main__:clustering                      : 7676.72 seconds
-INFO:__main__:filtering                       : 1118.62 seconds
-INFO:__main__:save                            : 3105.66 seconds
-INFO:__main__:Data Number (before)            : 40113161
-INFO:__main__:Data Number (after)             : 21108567 (52.62%)
-INFO:__main__:Duplicate Number                : 19004594 (47.38%)
-INFO:__main__:Total Time                      : 38281.88 seconds
-INFO:__main__:Deduplicated Dataset            : results/output/deduplicated
-INFO:__main__:🤗 Happy Deduplicating 🤗
+load_dataset                    : 3414.68 seconds
+minhash                         : 22966.13 seconds
+clustering                      : 7676.72 seconds
+filtering                       : 1118.62 seconds
+save                            : 3105.66 seconds
+Data Number (before)            : 40113161
+Data Number (after)             : 21108567 (52.62%)
+Duplicate Number                : 19004594 (47.38%)
+Total Time                      : 38281.88 seconds (10.6 hours)
 ```
 
 
-Java Results as of Dec 2, 2022
+Java (already deduplicated) Results as of Dec 2, 2022
 ```
-[12/03/22 13:37:40] INFO     Load Dataset                    : 77.18 seconds                                                                                       
-                    INFO     Embed                           : 5052.87 seconds                                                                                     
-                    INFO     Create Index                    : 16253.12 seconds                                                                                    
-                    INFO     Save Index                      : 0.00 seconds                                                                                        
-                    INFO     Freeze Memory                   : 0.00 seconds                                                                                        
-                    INFO     Query                           : 1321.61 seconds                                                                                     
-                    INFO     Save Neighbors                  : 0.00 seconds                                                                                        
-                    INFO     Unfreeze Memory                 : 0.00 seconds                                                                                        
-                    INFO     Clustering                      : 10825.30 seconds                                                                                    
-                    INFO     Total Processing Time           : 34919.87 seconds                                                                                    
-                    INFO     Deduplicate                     : 605.83 seconds                                                                                      
-                    INFO     Save Deduplicated               : 2356.10 seconds                                                                                     
-                    INFO     Language                        : java                                                                                                
-                    INFO     Data Number (before filtering)  : 25124914                                                                                            
-                    INFO     Data Number (after filtering)   : 24972491                                                                                            
-                    INFO     Duplicate Number                : 4822205 (19.31%)                                                                                    
-                    INFO     Total Reduction                 : 4974628 (19.80%)                                                                                    
-                    INFO     Total Time                      : 37881.83 seconds
+Load Dataset                    : 77.18 seconds                                                                                       
+Embed                           : 5052.87 seconds                                                                                     
+Create Index                    : 16253.12 seconds                                                                                    
+Save Index                      : 0.00 seconds                                                                                        
+Freeze Memory                   : 0.00 seconds                                                                                        
+Query                           : 1321.61 seconds                                                                                     
+Save Neighbors                  : 0.00 seconds                                                                                        
+Unfreeze Memory                 : 0.00 seconds                                                                                        
+Clustering                      : 10825.30 seconds                                                                                    
+Total Processing Time           : 34919.87 seconds                                                                                    
+Deduplicate                     : 605.83 seconds                                                                                      
+Save Deduplicated               : 2356.10 seconds                                                                                     
+Language                        : java                                                                                                
+Data Number (before filtering)  : 25124914                                                                                            
+Data Number (after filtering)   : 24972491                                                                                            
+Duplicate Number                : 4822205 (19.31%)                                                                                    
+Total Reduction                 : 4974628 (19.80%)                                                                                    
+Total Time                      : 37881.83 seconds (10.5 hours)                                                                        
 ```
 
 More details can be found on https://zippy-anise-556.notion.site/Deduplication-Log-d75d1b3f2e684e96a12b069c5aff68cb.
