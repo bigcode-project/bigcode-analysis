@@ -162,3 +162,4 @@ cython_debug/
 .vscode/
 .trunk
 .DS_Store
+data_analysis/python_data_analysis/issue_language_identification/fasttext_model/lid.176.bin

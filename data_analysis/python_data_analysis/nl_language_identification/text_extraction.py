@@ -67,7 +67,7 @@ def get_text(source, comments=True, clean_comments=True):
     the extraction fails in case of syntax errors in the file 
     Args:
         source: the code to parse
-        comments: if True extract comments two
+        comments: if True extract comments too
         clean_comment: if True remove # from extracted comments
     Returns:
         a string with concatenated docstrings and comments"""
