@@ -1,5 +1,5 @@
 # Near deduplication
-
+## For the lastest version of near-deduplication with speed-ups, check [bigcode-dataset/near_deduplication](https://github.com/bigcode-project/bigcode-dataset/tree/main/near_deduplication)
 Code for running near-deduplication with MinHash and LSH indexing
 
 ### Setup
