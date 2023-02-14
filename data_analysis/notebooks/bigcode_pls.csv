@@ -1,0 +1,360 @@
+index,lang,count,size (Gb),Arjun's comments,Include,Size
+1,abap,14766.00,0.097798223,,,
+2,actionscript,151475.00,0.714806413,Omit: legacy PL for Flash. Flash no longer supported on any major browser. Unlikely that people are writing new Flash code.,,
+3,ada,39273.00,0.577616957,"Include: used in aerospace, defense, etc.?",1,0.577616957
+4,agda,18697.00,0.076828045,Include: significant in PL research. Functional. Verification.,1,0.076828045
+5,ags-script,1148.00,0.010587383,,,0
+6,alloy,5207.00,0.015588033,Include: significant in PL/SE/FM research.  Relational.,1,0.015588033
+7,ampl,75.00,7.65E-05,,,0
+8,antlr,9312.00,0.061952353,Include: widely-used for specifying context-free grammars,1,0.061952353
+9,apacheconf,187.00,0.000245907,,,0
+10,api-blueprint,2895.00,0.032142603,,,0
+11,apl,2127.00,0.007897713,undecided,,0
+12,applescript,5169.00,0.010201155,Include: major Appple language,1,0.010201155
+13,arc,2089.00,0.019751439,,,0
+14,arduino,163528.00,0.788386157,Harm: C++ variant for programmable electronics,,0
+15,asciidoc,221025.00,1.201338633,Harm: data looks good from a few samples (it's documentation style),,0
+16,asp,111163.00,0.522229033,,,0
+17,aspectj,2870.00,0.008254705,undecided,,0
+18,assembly,262334.00,1.648889979,Assembly. Include,1,1.648889979
+19,ats,3247.00,0.014441544,,,0
+20,augeas,208.00,0.000826699,Include: minor DSL from RedHet. Declarative. Very different from other langs.,1,0.000826699
+21,autohotkey,15258.00,0.084246694,,,0
+22,autoit,11864.00,0.102856281,,,0
+23,awk,11172.00,0.024450499,Include: widely used scripting language,1,0.024450499
+24,batchfile,281187.00,0.333024122,Include: widely used scripting language,1,0.333024122
+25,befunge,37.00,4.01E-06,,,0
+26,bison,145.00,0.003887651,Include: widely-used for specifying lexers,1,0.003887651
+27,bitbake,73167.00,0.089609174,,,0
+28,blitzbasic,228.00,0.007069605,,,0
+29,blitzmax,1720.00,0.013420046,,,0
+30,bluespec,6923.00,0.037450439,Include: hardware description language,1,0.037450439
+31,boo,4721,0.007027597,,,0
+32,brainfuck,10077,0.049801268,undecided,,0
+33,brightscript,2340,0.014593211,,,0
+34,bro,912,0.00293523,,,0
+35,c,11206308,75.92987105,Obvious,1,75.92987105
+36,c++,7600356,65.96642214,Obvious,1,65.96642214
+37,c-sharp,13281504,57.98494339,Obvious,1,57.98494339
+38,c2hs-haskell,1084,0.011598729,,,0
+39,cap'n-proto,1538,0.003322507,undecided,,0
+40,cartocss,1781,0.020215215,,,0
+41,ceylon,6506,0.017001518,undecided: a Red Hat language; seems abandoned?,,0
+42,chapel,15912,0.037359901,undecided,,0
+43,chuck,1397,0.003407997,,,0
+44,cirru,1078,0.06595696,,,0
+45,clarion,1039,0.010567484,,,0
+46,clean,835,0.004459314,undecided,,0
+47,click,371,0.00161367,,,0
+48,clips,1701,0.010305217,,,0
+49,clojure,137204,0.56312332,"Include: Lispy, JVM, Datomic",1,0.56312332
+50,cmake,248361,0.679152478,Obvious,1,0.679152478
+51,cobol,3175,0.018076838,undecided,1,0.018076838
+52,coffeescript,256615,0.882924413,undecided,1,0.882924413
+53,coldfusion,14649,0.072415269,,,0
+54,coldfusion-cfc,14331,0.07927666,,,0
+55,common-lisp,111008,1.936640009,Include: still widely used in software that is still maintained,1,1.936640009
+56,component-pascal,860,0.108625083,,,0
+57,coq,40,0.000229547,Misclassified. There must be more data,,0
+58,creole,689,0.001459754,,,0
+59,crystal,90251,0.301409398,,,0
+60,csound,1608,0.04287534,,,0
+61,css,3586141,34.86330899,,,0
+62,csv,5992650,266.826193,Exclude,,0
+63,cucumber,92741,0.256383451,,,0
+64,cuda,71446,0.730044154,Obvious,1,0.730044154
+65,cycript,459,0.011675073,,,0
+66,cython,42621,0.403100053,Harm: looks good to me,,0
+67,d,431,0.00177274,Misclassified. There must be more data,1,0.00177274
+68,darcs-patch,369,0.002560221,Exclude. Probably not a PL,,0
+69,dart,1070286,4.877312353,Include: major Google language,1,4.877312353
+70,desktop,17075,0.009376839,not a PL?,,0
+71,diff,386667,2.599852065,Exclude. Probably not a PL,,0
+72,digital-command-language,19109,0.070433624,,,0
+73,dm,4603,0.032649213,,,0
+74,dns-zone,1457,0.023461303,,,0
+75,dockerfile,639343,0.517538485,undecided. This is basically shell scripts,1,0.517538485
+76,dogescript,364,0.00013444,,,0
+77,dylan,4747,0.040813775,undecided,,0
+78,eagle,45991,4.645208881,"Data, based on 3-4 samples",,0
+79,ec,1152,0.023841255,,,0
+80,ecere-projects,182,0.001313465,,,0
+81,ecl,5120,0.028274082,,,0
+82,edn,23358,1.374275976,,,0
+83,eiffel,28472,0.126345794,undecided,,0
+84,elixir,351916,0.93891419,"Include: Erlang, concurrent",1,0.93891419
+85,elm,68002,0.367896114,"Include: functional, web",1,0.367896114
+86,emacs-lisp,68984,0.551702192,Obvious,1,0.551702192
+87,emberscript,1969,0.025593958,,,0
+88,erlang,121296,0.931688288,Obvious,1,0.931688288
+89,f#,142144,1.031253976,Obvious,1,1.031253976
+90,factor,12163,0.036390924,,,0
+91,fancy,538,0.001420258,,,0
+92,fantom,2598,0.010674187,,,0
+93,fish,33460,0.040602801,,,0
+94,flux,1221,0.00724385,,,0
+95,forth,4692,0.021339541,undecided,,0
+96,fortran,186211,2.079444236,Obvious,1,2.079444236
+97,freemarker,74678,0.317162226,,,0
+98,g-code,12185,0.890362356,Harm: 3d printers,,0
+99,gams,2011,0.059093651,,,0
+100,gap,1210,0.012636526,,,0
+101,gas,111211,1.303199948,GNU Assembler,1,1.303199948
+102,gdscript,129390,0.27310127,,,0
+103,genshi,398,0.00844459,,,0
+104,gentoo-ebuild,45554,0.051730603,,,0
+105,gentoo-eclass,379,0.002866541,,,0
+106,gettext-catalog,273229,9.711336079,Harm: multi-lingual API descriptions,,0
+107,glsl,206223,0.686847354,Include: shaders,1,0.686847354
+108,glyph,47,0.000743859,,,0
+109,gnuplot,31328,1.461753918,A language?,,0
+110,go,5889635,32.01376363,Obvious,1,32.01376363
+111,golo,540,0.000686322,,,0
+112,gosu,1112,0.005721374,,,0
+113,grace,583,0.001056405,,,0
+114,grammatical-framework,4231,0.038704313,,,0
+115,graphql,54946,0.179884882,"Harm: Facebook query language for APIs, 14k stars on Github",,0
+116,graphviz-(dot),99748,1.074293176,"Exclude: this is data, not a PL. IMO Graphviz is usually generated and not hand-written",,0
+117,groff,240689,2.938305336,"Old typesetting language. Still used of course, but mostly replaced by tex. This is mostly data",,0
+118,groovy,306823,1.207558695,Include,1,1.207558695
+119,groovy-server-pages,15392,0.097240488,,,0
+120,haml,136898,0.167000394,,,0
+121,handlebars,292850,0.594546259,,,0
+122,harbour,819,0.001420626,,,0
+123,haskell,582682,2.745870866,Include: major functional language,1,2.745870866
+124,haxe,147781,0.596376245,"Harm: Game dev, mobile, ",,0
+125,hcl,341067,0.807011745,Harm:  data format,,0
+126,hlsl,30266,0.086940443,,,0
+127,html,16602372,291.4582452,,,0
+128,html+django,60784,0.148110205,,,0
+129,html+eex,17119,0.024966882,,,0
+130,html+erb,649197,1.008359107,,,0
+131,html+php,98821,0.405201841,,,0
+132,http,25314,0.067294465,,,0
+133,hy,1404,0.007694671,,,0
+134,idl,492,0.008022681,,,0
+135,idris,8449,0.034530222,"Include: significant in PL research, functional, verification",1,0.034530222
+136,igor-pro,730,0.011822097,,,0
+137,inform-7,429,0.015622285,,,0
+138,ini,1630329,3.566209389,Probably exclude: Not a PL?,,0
+139,inno-setup,3752,0.019808392,,,0
+140,io,3031,0.00836172,undecided,,0
+141,ioke,409,0.002303905,,,0
+142,irc-log,101,0.006792731,,,0
+143,isabelle,5724,0.098911734,"Include: significant in PL research, functional, verification",1,0.098911734
+144,j,3093,0.015198472,,,0
+145,jade,94273,0.178474889,,,0
+146,jasmin,7371,0.04117105,,,0
+147,java,25124914,112.8234043,Obvious,1,112.8234043
+148,java-server-pages,281662,1.330394207,Obvious,1,1.330394207
+149,javascript,25429179,166.2414118,Obvious,1,166.2414118
+150,jflex,3398,0.014072463,,,0
+151,json,36297006,627.8661835,,,0
+152,json5,6048,0.075441422,,,0
+153,jsoniq,4242,0.006691644,,,0
+154,jsonld,30033,0.244416576,,,0
+155,jsx,1094154,3.045787612,Harm: javascript react ,,0
+156,julia,332174,1.751905383,"Include: HPC, concurrent, etc.",1,1.751905383
+157,jupyter-notebook,1199902,162.4975517,Harm: processed separately,,0
+158,kicad,11882,2.991856997,Sampled 3-4. Mostly data from what I can tell,,0
+159,kit,1446,0.006728298,,,0
+160,kotlin,2644255,6.822951943,Include: the Android PL,1,6.822951943
+161,krl,292,0.001202317,,,0
+162,labview,2176,0.091341864,undecided,,0
+163,lasso,1158,0.048377834,,,0
+164,latte,7211,0.014196855,,,0
+165,lean,21003,0.162765045,"Include: significant in PL research, functional, verification",1,0.162765045
+166,less,407086,1.145523703,Harm: markup language ,,0
+167,lex,3380,0.081799333,undecided. related to Bison?,1,0.081799333
+168,lfe,1048,0.002028635,,,0
+169,lilypond,7406,0.031897442,,,0
+170,linker-script,15072,0.081791257,,,0
+171,liquid,30751,0.122617805,Harm: Shopify markup language,,0
+172,literate-agda,573,0.005294123,Include if including Agda,1,0.005294123
+173,literate-coffeescript,1156,0.005056236,Include if including CoffeeScript,1,0.005056236
+174,literate-haskell,6703,0.067831422,Include if including Haskell,1,0.067831422
+175,livescript,9699,0.039472374,,,0
+176,llvm,72679,0.785443486,undecided. Is this just generated stuff?,,0
+177,logos,21190,0.349273476,Harm: old PL,,0
+178,logtalk,3125,0.009893734,,,0
+179,lolcode,811,0.001302327,,,0
+180,lookml,484,0.006730641,,,0
+181,lsl,2753,0.015521771,,,0
+182,lua,637541,3.766811033,"Include: significantly used in scripting, games",1,3.766811033
+183,m,134,7.75E-05,,,0
+184,m4,23018,0.153150917,,,0
+185,makefile,801562,2.143090361,Include: more shell scripts,1,2.143090361
+186,mako,9332,0.037311069,,,0
+187,maple,2308,0.026826063,Include: scientific programming,1,0.026826063
+188,markdown,25656996,95.84382086,,,0
+189,mask,1448,0.009652023,,,0
+190,mathematica,41260,1.877927466,Include: scientific programming,1,1.877927466
+191,matlab,1046,0.047973853,Include: scientific programming,1,0.047973853
+192,max,12744,0.596285678,,,0
+193,maxscript,604,0.005334702,,,0
+194,mediawiki,21551,0.158945413,,,0
+195,metal,5042,0.0181611,,,0
+196,mirah,5709,0.070237047,,,0
+197,modelica,26120,0.141068962,,,0
+198,module-management-system,346,0.002231462,,,0
+199,monkey,1828,0.007924306,,,0
+200,moonscript,5309,0.016770277,,,0
+201,mtml,536,0.001453616,,,0
+202,muf,561,0.001667817,,,0
+203,mupad,774,0.006010949,,,0
+204,myghty,11,6.29E-05,,,0
+205,nesc,19216,0.138510587,,,0
+206,netlinx,188,0.002778406,,,0
+207,netlogo,1524,0.039246293,,,0
+208,nginx,15,2.26E-05,,,0
+209,nimrod,57910,0.522520055,,,0
+210,ninja,3893,0.099536967,,,0
+211,nit,87,0.000264594,,,0
+212,nix,195025,0.649707883,,,0
+213,nsis,4159,0.029944153,,,0
+214,nu,927,0.002204864,,,0
+215,numpy,7,1.32E-05,,,0
+216,objdump,711,0.052410804,,,0
+217,objective-c++,75367,0.694668418,,,0
+218,objective-j,456,0.008176827,Exclude: I think this is dead?,,0
+219,ocaml,187323,1.365987005,Include: major functional language,1,1.365987005
+220,octave,201,0.003441835,"Undecided. Precursor to R, etc?",,0
+221,omgrofl,4,3.03E-06,,,0
+222,ooc,1487,0.005106774,,,0
+223,opa,363,0.004085012,,,0
+224,opal,158,0.000459592,,,0
+225,opencl,27492,0.201742827,,,0
+226,openscad,21218,0.111863208,,,0
+227,org,51999,0.365003693,,,0
+228,ox,250,0.001307936,,,0
+229,oxygene,55,0.000240078,,,0
+230,oz,1208,0.004989877,,,0
+231,pan,5673,0.060544641,,,0
+232,papyrus,12577,0.04664692,,,0
+233,parrot,30,5.35E-05,,,0
+234,parrot-assembly,431,0.000497986,,,0
+235,parrot-internal-representation,1576,0.047925378,,,0
+236,pascal,131974,1.877279695,Include: best PL,1,1.877279695
+237,pawn,2530,0.057843412,,,0
+238,perl,475344,2.987812011,Obvious,1,2.987812011
+239,perl6,11279,0.050197622,,,0
+240,php,22633374,89.45680388,Include: ugh,1,89.45680388
+241,piglatin,1702,0.00286154,,,0
+242,pike,1033,0.003621717,,,0
+243,pod,13406,0.136778901,,,0
+244,pogoscript,228,0.000541998,,,0
+245,pony,3860,0.020518823,,,0
+246,postscript,17707,1.568144315,Undecided. Is this just data?,,0
+247,pov-ray-sdl,1225,0.021130333,,,0
+248,powershell,333193,1.654198124,Include: Windows scripting languge,1,1.654198124
+249,processing,59476,0.240804965,"Likely include, but remind myself -- this just Java, right?",1,0.240804965
+250,prolog,1162,0.012870975,Include: GOFAI,1,0.012870975
+251,propeller-spin,2335,0.022317081,,,0
+252,protocol-buffer,124069,0.556668256,Include: Google engineers will be happy,1,0.556668256
+253,pure-data,15018,0.104991313,,,0
+254,purebasic,19536,0.054749768,,,0
+255,purescript,33671,0.14750348,,,0
+256,python,15148604,80.13463578,Obvious,1,80.13463578
+257,python-traceback,9,3.25E-05,Exclude,,0
+258,qmake,10338,0.022073257,,,0
+259,qml,54070,0.238437227,,,0
+260,r,41580,0.316489511,Obvious,1,0.316489511
+261,racket,4318,0.039497334,"Include: PL used in teaching and research, mixed-paradigm",1,0.039497334
+262,ragel-in-ruby-host,1847,0.011011379,,,0
+263,raml,13598,0.048217182,,,0
+264,rdoc,10940,0.031951045,,,0
+265,realbasic,871,0.010335615,,,0
+266,rebol,1495,0.006508232,Is this dead?,,0
+267,red,3611,0.039918747,,,0
+268,redcode,513,0.002673693,,,0
+269,ren'py,4898,0.11411255,,,0
+270,renderscript,995,0.002270658,,,0
+271,restructuredtext,1122999,4.281577848,Harm points out to include,1,4.281577848
+272,rhtml,7469,0.009793544,Is this R?,,0
+273,rmarkdown,5831,0.061474482,"Include, this is R",1,0.061474482
+274,robotframework,14924,0.063781898,,,0
+275,rouge,1542,0.004224455,,,0
+276,ruby,4463248,9.781043003,Obvious,1,9.781043003
+277,rust,1677940,12.91866254,Obvious,1,12.91866254
+278,sage,1930,0.014832049,,,0
+279,saltstack,31203,0.042226819,,,0
+280,sas,10755,0.160669991,"Carolyn: include, this is a stats scripting language",1,0.160669991
+281,sass,108862,0.196029291,,,0
+282,scala,1607698,6.061807569,Obvious,1,6.061807569
+283,scaml,114,0.000120361,,,0
+284,scheme,64961,0.597677147,Include: Lisp derivative,1,0.597677147
+285,scilab,3129,0.011411926,,,0
+286,scss,2449305,5.284018372,,,0
+287,self,85,0.000509786,Inspiration for JavaScript. No more of this on the web?,1,0.000509786
+288,shell,2540313,4.066701981,Obvious,1,4.066701981
+289,shellsession,10,1.58E-05,,,0
+290,shen,306,0.001125251,,,0
+291,slash,9274,0.035859409,,,0
+292,slim,52114,0.059704412,,,0
+293,smali,288385,3.211701155,,,0
+294,smalltalk,652835,0.762851187,Probably include. Still some people using this I believe,1,0.762851187
+295,smarty,167634,0.56143135,,,0
+296,smt,26696,0.404797122,Undecided. Lispy. These are likely generated files.,,0
+297,solidity,216020,1.696340017,Include: smart contracts,1,1.696340017
+298,sourcepawn,7288,0.130712384,,,0
+299,sparql,16585,0.045287982,"Include: Spark, etc.",1,0.045287982
+300,sqf,39747,0.140966975,,,0
+301,sql,1066540,12.67551878,Obvious,1,12.67551878
+302,squirrel,6385,0.038697967,,,0
+303,stan,6556,0.015036825,Include: PPL,1,0.015036825
+304,standard-ml,52443,0.538388205,Include: FP,1,0.538388205
+305,stata,34926,0.418126748,"Carolyn: stata is an important data analysis lang. but we want only the .do files, not the .dta files",1,0.418126748
+306,ston,1720,0.001329725,,,0
+307,stylus,88412,0.157867404,,,0
+308,supercollider,2761,0.01793768,,,0
+309,svg,3816962,79.85220843,Undecided. Same category as XML,,0
+310,swift,2063629,7.305693131,Obvious,1,7.305693131
+311,systemverilog,56261,0.498070786,Include: HDL,1,0.498070786
+312,tcl,63362,0.511421635,Include: 90s scripting language; still widely used,1,0.511421635
+313,tcsh,6313,0.027505715,Include: shell scripts,1,0.027505715
+314,tea,1086,0.043406292,,,0
+315,tex,593741,5.863253431,Include: help me write my papers,1,5.863253431
+316,text,17241649,233.4156933,what,,0
+317,textile,8550,0.036826583,,,0
+318,thrift,6008,0.019724138,Include: Facebook engineers want this,1,0.019724138
+319,toml,603802,0.682639067,Undecided. Likely just data,,0
+320,turing,281,0.003482555,,,0
+321,turtle,167790,2.961368586,https://www.w3.org/TR/turtle/ Data. Ignore?,,0
+322,twig,445738,1.318711043,,,0
+323,txl,149,0.002262777,,,0
+324,typescript,12817789,36.60518411,Obvious,1,36.60518411
+325,unified-parallel-c,204,0.001573707,,,0
+326,unity3d-asset,5283462,9.059069948,,,0
+327,uno,4380,0.011293002,,,0
+328,unrealscript,11238,0.070370664,,,0
+329,urweb,1181,0.007658499,"Undecided. This is probably Adam Chlipala's language, but double-check",,0
+330,vala,4830,0.024860858,,,0
+331,vcl,1325,0.005250865,,,0
+332,verilog,169,0.000955152,Include: HDL,1,0.000955152
+333,vhdl,73888,1.457399755,Include: HDL,1,1.457399755
+334,viml,110500,0.404044383,Include: VIM configurations,1,0.404044383
+335,visual-basic,193066,1.709779092,Obvious,1,1.709779092
+336,volt,4226,0.014539185,,,0
+337,vue,1938940,8.574533644,.vue -- these have a significant HTML component,,0
+338,web-ontology-language,13385,1.07383534,,,0
+339,webassembly,8113,0.214897947,Undecided. Mostly generated code,,0
+340,webidl,2622,0.005019794,,,0
+341,wisp,130,0.00064634,,,0
+342,x10,406,0.001619354,"Exclude: this project is done, right?",,0
+343,xbase,7993,0.066203089,,,0
+344,xc,585,0.004971472,,,0
+345,xml,12683687,149.8550762,Data,,0
+346,xojo,2940,0.032677002,,,0
+347,xpages,315,0.002216953,,,0
+348,xproc,1297,0.006994676,,,0
+349,xquery,25933,0.046211199,,,0
+350,xs,2025,0.03171586,,,0
+351,xslt,57501,0.715532013,Include: XSLT is an XML transformation language; these are likely hand-written. XSLT is also a huge PITA to write by hand,1,0.715532013
+352,xtend,11916,0.052799695,,,0
+353,yacc,78972,0.557021816,Include: parser generator,1,0.557021816
+354,yaml,7675977,40.82317001,Data,,0
+355,yang,13539,0.216720152,,,0
+356,zephir,3184,0.012502994,,,0
+357,zig,19483,0.249499308,Include: up and coming language in the same space as Rust,1,0.249499308
+358,zimpl,314,0.00236159,,,0
+,,,,,92,842.6753674
