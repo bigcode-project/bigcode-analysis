@@ -10,6 +10,7 @@ This repository is for the analysis done in BigCode Project. You can find analys
     * Data decontamination for HumanEval and MBPP benchmarks
     * Percentage of files that can be successfully compiled
     * Percentage of configuration and test files
+    * Exploration of unimax sampling on The Stack
 Some notebooks with some early data and model loss analysis.
 
 * **Multi-Query Attention experiments**, for details please to [multi_query_experiments/README.md)](/multi_query_experiments/README.md)
