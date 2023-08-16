@@ -17,7 +17,7 @@ from tqdm.auto import tqdm
 from transformers import set_seed
 
 
-REQ_OPENAI_TIME_GAP = {"gpt-4": 20, "gpt-3.5-turbo": 6}
+REQ_OPENAI_TIME_GAP = {"gpt-4": 6, "gpt-3.5-turbo": 6}
 SYSTEM_PROMPT = "You are a helpful and precise assistant for checking the educational quality of code."
 PROMPT_HEADER = """Please act as an impartial judge and evaluate the educational value of the code file displayed below for someone just starting to learn coding concepts. Your evaluation should prioritize clarity and simplicity to ensure the code is easily digestible for a beginner. \
 Be as objective as possible. You must first rate the code file on a scale of 1 to 10 by strictly following this format: "[[rating]]", for example: "Rating: [[5]]", then provide a short explanation of the rating.\n\nCode file:\n\n"""
@@ -55,26 +55,32 @@ def get_args():
         type=str,
         help="Output path for annotations",
     )
+    parser.add_argument(
+        "--log_file",
+        default="/fsx/loubna/code/data_v2/analysis/openai/eval_openai.log",
+        type=str,
+        help="Log file path",
+    )
     return parser.parse_args()
 
 
-def build_prompt(i, header=PROMPT_HEADER):
+def build_prompt(i, ds, header=PROMPT_HEADER):
     input = header
-    code = ds_medium[i]
+    code = ds[i]
     prompt = f"{input}{code['content']}"
     return prompt
 
 
 def run_eval(inputs):
-    input_text, model_name, sleep_time = inputs
+    input_text, model_name, sleep_time, hf_token, api_url = inputs
     # To avoid the rate limit
     if model_name == "llama-70b-chat":
         # parameters taken from https://huggingface.co/spaces/ysharma/Explore_llamav2_with_TGI
         completion, did_run = run_llama_eval(
             SYSTEM_PROMPT,
+            input_text,
             hf_token,
             api_url,
-            input_text,
             max_tokens=128,
             temperature=0.9,
             top_p=0.6,
@@ -107,24 +113,23 @@ def run_eval(inputs):
                 "temperature": 0.7,
                 "top_p": 0.95,
             },
-            "metadata": {"timestamp": strftime("%Y-%m-%d %H:%M:%S", gmtime())},
         }
 
     review_dict = {
         "completion": completion,
-        "review_model": openai_model,
+        "review_model": model_name,
         "prompt": input_text,
         "eval_prompt_header": PROMPT_HEADER,
         "generation_config": {
             "temperature": 0.7,
             "top_p": 0.95,
         },
-        "metadata": {"timestamp": strftime("%Y-%m-%d %H:%M:%S", gmtime())},
     }
 
     # Optional sleep
     time.sleep(sleep_time)
-    logger.info(f"Sleeping for {sleep_time} seconds to avoid OpenAI rate limit.")
+    if sleep_time > 0:
+        logger.info(f"Sleeping for {sleep_time} seconds to avoid rate limit.")
 
     return review_dict
 
@@ -133,6 +138,12 @@ def run_eval(inputs):
 if __name__ == "__main__":
     args = get_args()
     logger = logging.getLogger(__name__)
+    logging.basicConfig(
+        format="%(asctime)s - %(levelname)s - %(name)s - %(message)s",
+        datefmt="%m/%d/%Y %H:%M:%S",
+        level=logging.INFO,
+        handlers=[logging.FileHandler(args.log_file), logging.StreamHandler()],
+    )
     set_seed(args.seed)
 
     openai.api_key = os.environ.get("OPENAI_API_KEY")
@@ -145,19 +156,19 @@ if __name__ == "__main__":
 
     # Load dataset
     ds = load_dataset("bigcode/the-stack-smol", split="train", data_dir="data/python")
-    ds_medium = ds.filter(lambda x: 600 <= x["size"] <= 6000)
+    ds_medium = ds.filter(lambda x: 600 <= x["size"] <= 8000)
     logger.info(
         f"Loaded {len(ds_medium)} medium-sized (600-6000 characters) code files."
     )
 
     # build prompts
-    prompts = [build_prompt(i) for i in range(args.n_samples)]
+    prompts = [build_prompt(i, ds_medium, header=PROMPT_HEADER) for i in range(args.n_samples)]
     logger.info(
         f"Built {len(prompts)} prompts for {model_name} model.\n{'='*50} Sample prompt {'='*50}\n{prompts[0]}"
     )
 
     # Run eval
-    inputs = [(prompt, model_name, sleep_time) for prompt in prompts]
+    inputs = [(prompt, model_name, sleep_time, hf_token, api_url) for prompt in prompts]
     logger.info(f"Running eval for {len(inputs)} prompts with {model_name} model.")
     with Pool(12) as pool:
         review_jsons = list(tqdm(pool.imap(run_eval, inputs), total=len(prompts)))
@@ -170,7 +181,7 @@ if __name__ == "__main__":
     scores = [review["score"] for review in reviews_with_scores]
     logger.info(f"Distribution of scores is: {Counter(scores)}")
 
-    dumped = json.dumps(review_jsons, indent=4, sort_keys=True, default=str)
+    dumped = json.dumps(reviews_with_scores, indent=4, sort_keys=True, default=str)
     with open(args.output_path, "w") as output_review_file:
         output_review_file.write(dumped)
         logger.info(f"🚀 All done! Completions saved to {args.output_path}")

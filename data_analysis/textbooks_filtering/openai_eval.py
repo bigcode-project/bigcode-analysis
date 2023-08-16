@@ -36,8 +36,6 @@ def run_openai_eval(
                 max_tokens=max_tokens,
             )
             content = response["choices"][0]["message"]["content"]
-            if logger is not None:
-                logger.info(content)
             return content, True
         except Exception as e:
             if logger is not None:

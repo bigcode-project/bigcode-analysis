@@ -14,7 +14,10 @@ Be as objective as possible. You must first rate the code file on a scale of 1 t
 We now only analyze code file with more than 600 charcaters and less than 6k characters.
 After setting the variable `HF_TOKEN`, `LLAMA_API_URL` and `OPENAI_API_KEY` you can run annotaions. For example, you can use LLaMa-70B-Chat to annotate the files using the following command:
 ```bash
-python main.py --model_type llama --model_name llama-70b-chat --n_samples 200 --output_path ./llama_100_samples.json
-python main.py --model_type openai --model_name gpt4 --n_samples 200 --output_path ./gpt4_200_samples.json
-python main.py --model_type openai --model_name gpt-3.5-turbo --n_samples 200 --output_path ./chatgpt_100_samples.json
+python main.py --model_type llama --model_name llama-70b-chat --n_samples 200 --output_path ./llama_200_samples.json
+python main.py --model_type openai --model_name gpt4 --n_samples 600 --output_path ./gpt4_600_samples.json
+python main.py --model_type openai --model_name gpt-3.5-turbo --n_samples 10 --output_path ./chatgpt_10_samples.json
 ...
+You can find some analysis of results in `analyze_results.ipynb` notebook including teh distribution of scores on 600 python files below:
+
+<img src="https://huggingface.co/datasets/loubnabnl/repo-images/resolve/main/llms_stack.png" alt="llms_stack" width="200" height="400"/>
