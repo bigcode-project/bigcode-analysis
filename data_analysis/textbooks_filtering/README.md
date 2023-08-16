@@ -21,3 +21,5 @@ python main.py --model_type openai --model_name gpt-3.5-turbo --n_samples 10 --o
 You can find some analysis of results in `analyze_results.ipynb` notebook including teh distribution of scores on 600 python files below:
 
 <img src="https://huggingface.co/datasets/loubnabnl/repo-images/resolve/main/llms_stack.png" alt="llms_stack" width="600" height="700"/>
+
+Acknowledgement: the code in this reposityory is adapted from https://github.com/huggingface/h4/blob/main/scripts/evaluation/
