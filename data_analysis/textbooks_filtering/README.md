@@ -1,10 +1,12 @@
 # Filtering of The Stack with an LLM [WIP]
-In this section we describe teh filtering of the Python subset of The Stack following the approach used in [Textbooks are all you need paper]().
+In this section we describe the filtering of the Python subset of The Stack following the approach used in [Textbooks are all you need paper]().
 The filtering is done in two steps:
+
 1 - Annotate 100k files from the Python subset of The Stack using GPT4/LLaMa to find if a file has educational value for beginners or not.
+
 2 - Use the annotations to train a classifier to predict if a file has educational value for beginners or not based on its embedding.
 
-### Annotating The Stack
+## Annotating The Stack
 We test LLaMa-70B-Chat, GPT4 and ChatGPT. We use the following prompt:
 ```python
 prompt = """Please act as an impartial judge and evaluate the educational value of the code file displayed below for someone just starting to learn coding concepts. Your evaluation should prioritize clarity and simplicity to ensure the code is easily digestible for a beginner. \
@@ -22,4 +24,5 @@ You can find some analysis of results in `analyze_results.ipynb` notebook includ
 
 <img src="https://huggingface.co/datasets/loubnabnl/repo-images/resolve/main/llms_stack.png" alt="llms_stack" width="600" height="700"/>
 
-Acknowledgement: the code in this reposityory is adapted from https://github.com/huggingface/h4/blob/main/scripts/evaluation/
+### Acknowledgements
+The code in this reposityory is adapted from https://github.com/huggingface/h4/blob/main/scripts/evaluation/
