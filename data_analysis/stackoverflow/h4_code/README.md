@@ -20,7 +20,7 @@ It is a long for-loop over desired exchanges.
 python scripts/data/pmp/stack_exchange_process.py --save_path=/path/to/hf-dataset
 ```
 
-3) `binarize.py`: used to binarize the pre-filter Stack Exchange data (and in the future, Reddit / Wikipedia)
+3) `binarize.py`: used to binarize the pre-filter Stack Exchange data
 ```shell
 python scripts/data/pmp/binarize.py --save_path=/path/to/hf-dataset
 ```
