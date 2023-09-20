@@ -24,3 +24,5 @@ python scripts/data/pmp/stack_exchange_process.py --save_path=/path/to/hf-datase
 ```shell
 python scripts/data/pmp/binarize.py --save_path=/path/to/hf-dataset
 ```
+
+Credits: code from HuggingFaceH4 team
