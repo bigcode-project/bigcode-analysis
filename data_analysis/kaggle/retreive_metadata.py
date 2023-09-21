@@ -6,6 +6,7 @@ from pathlib import Path
 from datasets import load_dataset, Dataset
 
 ds = load_dataset("bigcode/kaggle-notebooks-data", use_auth_token=True, split="train")
+ds = ds.select(range(20000))
 print("dataset loaded")
 
 kv_csv = '/fsx/loubna/kaggle_data/metadata_kaggle/KernelVersions.csv'
@@ -65,5 +66,6 @@ def retrive_metadata(row):
     output = get_metadata(row['file_id'])
     return output
 
-# issue when using amp new values are None, but aren't without it?
-ds = ds.map(retrive_metadata, num_proc=36)
+# issue when using map with multipprocessing new values are None
+new_ds = ds.map(retrive_metadata)
+new_ds.push_to_hub("kaggle-notebooks-data-metadata-20k")
