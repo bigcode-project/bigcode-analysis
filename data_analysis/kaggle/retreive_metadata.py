@@ -6,7 +6,6 @@ from pathlib import Path
 from datasets import load_dataset, Dataset
 
 ds = load_dataset("bigcode/kaggle-notebooks-data", use_auth_token=True, split="train")
-ds = ds.select(range(20000))
 print("dataset loaded")
 
 kv_csv = '/fsx/loubna/kaggle_data/metadata_kaggle/KernelVersions.csv'
