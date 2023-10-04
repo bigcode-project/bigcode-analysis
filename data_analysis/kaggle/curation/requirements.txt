@@ -1,0 +1,7 @@
+beautifulsoup4
+tqdm
+nbformat
+torch
+transformers
+datasets
+black

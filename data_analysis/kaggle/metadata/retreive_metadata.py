@@ -1,13 +1,12 @@
 # code for getting metadata based on file id 
 import pandas as pd
-import numpy as np
 import json
-from pathlib import Path
-from datasets import load_dataset, Dataset
+from datasets import load_dataset
+from manual_sharding import save_manual_shards
 
-ds = load_dataset("bigcode/kaggle-notebooks-data", use_auth_token=True, split="train")
-ds = ds.select(range(20000))
-print("dataset loaded")
+ds = load_dataset("/fsx/loubna/kaggle-scripts-dedup", split="train", num_proc=36)
+
+print(f"dataset loaded with {len(ds)} rows")
 
 kv_csv = '/fsx/loubna/kaggle_data/metadata_kaggle/KernelVersions.csv'
 kernelversions_datasetsources_csv = '/fsx/loubna/kaggle_data/metadata_kaggle/KernelVersionDatasetSources.csv'
@@ -68,4 +67,10 @@ def retrive_metadata(row):
 
 # issue when using map with multipprocessing new values are None
 new_ds = ds.map(retrive_metadata)
-new_ds.push_to_hub("kaggle-notebooks-data-metadata-20k")
+save_manual_shards(
+    new_ds, user="loubnabnl", remote_dataset_repo="kaggle-scripts-clean-dedup-meta",
+)
+subset = ds.select(range(10_000))
+subset.push_to_hub("kaggle_scripts_subset")
+print("Done! 💃🏻💥")
+#new_ds.push_to_hub("kaggle-notebooks-data-w-metadata")
