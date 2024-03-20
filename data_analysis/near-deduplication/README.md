@@ -8,7 +8,7 @@ Code for running near-deduplication with MinHash and LSH indexing
 pip install -r requirements.txt
 ````
 
-Login to be able to be able to push the dataset to the hub after deduplication and clone your huggingface-hub repositories:
+Login to be able to push the dataset to the hub after deduplication and clone your huggingface-hub repositories:
 
 ````
 huggingface-cli login
@@ -31,7 +31,7 @@ python near_deduplicate.py \
     --text_column content 
 ````
 
-To make just a test run with a subset of the data set `test_run` argument to True.
+To make just a test run with a subset of the data, set `test_run` argument to True.
 
 The first time you load the dataset might be slow if it is large, but the data is saved in the cache thanks to `datasets`, and the subsequent calls will be fast.
 
@@ -57,11 +57,11 @@ This is for the alternative script that is designed for single-machine setup.
 
 ##### Scaling
 
-To understand the limitation of current deduplication implementation, it is important to have an idea of how each step in the pipleine affects the overall time:
-1. Minhashing is fast, but it takes loner for long documents. Hashing scales with both the number of cores and single core performance (clock speed, for example). With `datasets`'s caching, it also does not require much memory.
-2. Indexing is basically putting minhash signatures into different buckets. This is one bottleneck in this pipleine. In an ideal situation where MapReduce is seamlessly integrated with other parts, it can be further improved with distributed buckets.
+To understand the limitation of current deduplication implementation, it is important to have an idea of how each step in the pipeline affects the overall time:
+1. Minhashing is fast, but it takes longer for long documents. Hashing scales with both the number of cores and single core performance (clock speed, for example). With `datasets`s caching, it also does not require much memory.
+2. Indexing is basically putting minhash signatures into different buckets. This is one bottleneck in this pipeline. In an ideal situation where MapReduce is seamlessly integrated with other parts, it can be further improved with distributed buckets.
 3. Depending on how you look at duplicates, querying can be easily created by iterating the buckets or iterating the simhashes.
-4. Depending on how you decide to group duplicates, you can build a graph and then do connected component analysis or use simple algorithm like union-find.
+4. Depending on how you decide to group duplicates, you can build a graph and then do connected component analysis or use a simple algorithm like union-find.
 5. What to do with a group of duplicates is also a widely open question. We opt to keep one document within a group/cluster in this case.
 
 ##### Experiments
