@@ -1,0 +1,5 @@
+datasets
+py7zr
+requests
+tqdm
+bs4
